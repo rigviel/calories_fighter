@@ -21,9 +21,9 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const openaiKey = Deno.env.get('OPENAI_API_KEY');
-    if (!openaiKey) {
-      return new Response(JSON.stringify({ error: 'OpenAI API key not configured' }), {
+    const geminiKey = Deno.env.get('GEMINI_API_KEY');
+    if (!geminiKey) {
+      return new Response(JSON.stringify({ error: 'Gemini API key not configured' }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
@@ -46,44 +46,45 @@ Respond ONLY with a valid JSON object in this exact format (no markdown, no extr
 
 Be as accurate as possible. If you cannot identify the food clearly, still provide your best estimate and set confidence to "low". All numeric values should be numbers, not strings.`;
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${openaiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o',
-        messages: [
-          {
-            role: 'user',
-            content: [
-              { type: 'text', text: prompt },
-              {
-                type: 'image_url',
-                image_url: {
-                  url: `data:image/jpeg;base64,${imageBase64}`,
-                  detail: 'high',
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                { text: prompt },
+                {
+                  inline_data: {
+                    mime_type: 'image/jpeg',
+                    data: imageBase64,
+                  },
                 },
-              },
-            ],
+              ],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.3,
+            maxOutputTokens: 500,
           },
-        ],
-        max_tokens: 500,
-        temperature: 0.3,
-      }),
-    });
+        }),
+      }
+    );
 
     if (!response.ok) {
       const errorText = await response.text();
-      return new Response(JSON.stringify({ error: `OpenAI error: ${errorText}` }), {
+      return new Response(JSON.stringify({ error: `Gemini error: ${errorText}` }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    const openaiData = await response.json();
-    const content = openaiData.choices?.[0]?.message?.content;
+    const geminiData = await response.json();
+    const content = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
 
     if (!content) {
       return new Response(JSON.stringify({ error: 'No response from AI' }), {
