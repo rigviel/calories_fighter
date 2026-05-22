@@ -1,6 +1,6 @@
 import { Tabs } from 'expo-router';
-import { Camera, History, ChartBar } from 'lucide-react-native';
-import { StyleSheet, View } from 'react-native';
+import { Zap, History, TrendingUp } from 'lucide-react-native';
+import { StyleSheet } from 'react-native';
 
 export default function TabLayout() {
   return (
@@ -8,7 +8,7 @@ export default function TabLayout() {
       screenOptions={{
         headerShown: false,
         tabBarStyle: styles.tabBar,
-        tabBarActiveTintColor: '#22C55E',
+        tabBarActiveTintColor: '#FBBF24',
         tabBarInactiveTintColor: '#6B7280',
         tabBarLabelStyle: styles.tabLabel,
       }}
@@ -16,22 +16,22 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Scan',
-          tabBarIcon: ({ color, size }) => <Camera color={color} size={size} />,
+          title: 'Battle',
+          tabBarIcon: ({ color, size }) => <Zap color={color} size={size} />,
         }}
       />
       <Tabs.Screen
         name="history"
         options={{
-          title: 'History',
+          title: 'Log',
           tabBarIcon: ({ color, size }) => <History color={color} size={size} />,
         }}
       />
       <Tabs.Screen
         name="summary"
         options={{
-          title: 'Summary',
-          tabBarIcon: ({ color, size }) => <ChartBar color={color} size={size} />,
+          title: 'Stats',
+          tabBarIcon: ({ color, size }) => <TrendingUp color={color} size={size} />,
         }}
       />
     </Tabs>

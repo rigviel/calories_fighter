@@ -1,377 +1,431 @@
-import { useState, useRef, useCallback } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  Image,
-  ActivityIndicator,
-} from 'react-native';
-import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
-import { useRouter } from 'expo-router';
-import { Camera, FlipHorizontal, Zap } from 'lucide-react-native';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Animated } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
+import { Zap, Plus, Trash2 } from 'lucide-react-native';
 
-export default function ScanScreen() {
-  const [facing, setFacing] = useState<CameraType>('back');
-  const [permission, requestPermission] = useCameraPermissions();
-  const [capturedImage, setCapturedImage] = useState<string | null>(null);
-  const [analyzing, setAnalyzing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const cameraRef = useRef<CameraView>(null);
-  const capturedImageRef = useRef<string | null>(null);
-  const router = useRouter();
+interface Monster {
+  id: string;
+  initial_hp: number;
+  current_hp: number;
+  week_start: string;
+}
 
-  const analyzeImage = async (base64: string) => {
-    setError(null);
-    try {
-      const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
-      const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+interface DailyLog {
+  id: string;
+  food_description: string;
+  calories: number;
+  log_date: string;
+}
 
-      const response = await fetch(`${supabaseUrl}/functions/v1/analyze-food`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${anonKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ imageBase64: base64 }),
-      });
+export default function BattleScreen() {
+  const [monster, setMonster] = useState<Monster | null>(null);
+  const [todayLogs, setTodayLogs] = useState<DailyLog[]>([]);
+  const [foodInput, setFoodInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
+  const scaleAnim = useRef(new Animated.Value(1)).current;
 
-      const data = await response.json();
-
-      if (!response.ok || data.error) {
-        throw new Error(data.error ?? 'Analysis failed');
+  useEffect(() => {
+    const init = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user?.id) {
+        setUserId(session.user.id);
+        await loadWeeklyMonster(session.user.id);
       }
+    };
+    init();
+  }, []);
 
-      const sessionId = `session_${Date.now()}`;
-      const { error: dbError } = await supabase.from('meals').insert({
-        user_session_id: sessionId,
-        name: data.name,
-        calories: Math.round(data.calories),
-        protein_g: data.protein_g,
-        carbs_g: data.carbs_g,
-        fat_g: data.fat_g,
-        serving_size: data.serving_size,
-        meal_type: 'snack',
-        notes: data.notes,
-        image_url: capturedImageRef.current ?? '',
-        logged_at: new Date().toISOString(),
-      });
+  const getWeekDates = () => {
+    const today = new Date();
+    const dayOfWeek = today.getDay();
+    const diff = today.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
+    const monday = new Date(today.setDate(diff));
+    const sunday = new Date(monday);
+    sunday.setDate(sunday.getDate() + 6);
+    return {
+      start: monday.toISOString().split('T')[0],
+      end: sunday.toISOString().split('T')[0],
+    };
+  };
 
-      if (dbError) {
-        console.warn('DB save error:', dbError.message);
-      }
+  const loadWeeklyMonster = async (uid: string) => {
+    const { start, end } = getWeekDates();
+    const { data: userData } = await supabase
+      .from('users')
+      .select('tdee, current_difficulty_id')
+      .eq('id', uid)
+      .maybeSingle();
 
-      router.push({
-        pathname: '/result',
-        params: {
-          name: data.name,
-          calories: String(Math.round(data.calories)),
-          protein: String(data.protein_g ?? 0),
-          carbs: String(data.carbs_g ?? 0),
-          fat: String(data.fat_g ?? 0),
-          serving: data.serving_size ?? '',
-          notes: data.notes ?? '',
-          ingredients: JSON.stringify(data.ingredients ?? []),
-          confidence: data.confidence ?? 'medium',
-          imageUri: capturedImageRef.current ?? '',
-        },
-      });
-    } catch (err: any) {
-      setError(err.message ?? 'Something went wrong. Please try again.');
-      setCapturedImage(null);
-      capturedImageRef.current = null;
-    } finally {
-      setAnalyzing(false);
+    const { data: diffData } = await supabase
+      .from('difficulties')
+      .select('deficit_percentage')
+      .eq('id', userData?.current_difficulty_id)
+      .maybeSingle();
+
+    const deficit = (diffData?.deficit_percentage || 17.5) / 100;
+    const weeklyBudget = (userData?.tdee || 1750) * 7 * (1 - deficit);
+
+    const { data: existingMonster } = await supabase
+      .from('weekly_monsters')
+      .select('*')
+      .eq('user_id', uid)
+      .eq('week_start', start)
+      .maybeSingle();
+
+    if (existingMonster) {
+      setMonster(existingMonster as Monster);
+    } else {
+      const { data: newMonster } = await supabase
+        .from('weekly_monsters')
+        .insert({
+          user_id: uid,
+          week_start: start,
+          week_end: end,
+          initial_hp: weeklyBudget,
+          current_hp: weeklyBudget,
+          difficulty_id: userData?.current_difficulty_id,
+        })
+        .select()
+        .maybeSingle();
+      setMonster(newMonster as Monster);
+    }
+
+    await loadTodayLogs(uid);
+  };
+
+  const loadTodayLogs = async (uid: string) => {
+    const today = new Date().toISOString().split('T')[0];
+    const { start } = getWeekDates();
+
+    const { data: monsterData } = await supabase
+      .from('weekly_monsters')
+      .select('id')
+      .eq('user_id', uid)
+      .eq('week_start', start)
+      .maybeSingle();
+
+    if (monsterData) {
+      const { data: logs } = await supabase
+        .from('daily_logs')
+        .select('*')
+        .eq('user_id', uid)
+        .eq('monster_id', monsterData.id)
+        .eq('log_date', today)
+        .order('created_at', { ascending: false });
+      setTodayLogs(logs || []);
     }
   };
 
-  const takePicture = useCallback(async () => {
-    if (!cameraRef.current) return;
-    setError(null);
-    try {
-      const photo = await cameraRef.current.takePictureAsync({ base64: true, quality: 0.7 });
-      if (photo) {
-        capturedImageRef.current = photo.uri;
-        setCapturedImage(photo.uri);
-        setAnalyzing(true);
-        await analyzeImage(photo.base64 ?? '');
-      }
-    } catch {
-      setError('Failed to capture photo. Please try again.');
-      setAnalyzing(false);
+  const estimateCalories = async (description: string): Promise<number> => {
+    if (!userId) return 0;
+
+    const { data: foodMem } = await supabase
+      .from('food_memory')
+      .select('calories, times_logged')
+      .eq('user_id', userId)
+      .ilike('food_name', description)
+      .maybeSingle();
+
+    if (foodMem) {
+      await supabase
+        .from('food_memory')
+        .update({ times_logged: foodMem.times_logged + 1, last_used: new Date().toISOString() })
+        .ilike('food_name', description)
+        .eq('user_id', userId);
+      return foodMem.calories;
     }
-  }, []);
 
-  if (!permission) {
-    return (
-      <View style={styles.container}>
-        <ActivityIndicator color="#22C55E" size="large" />
-      </View>
-    );
-  }
+    try {
+      const response = await fetch(`${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/estimate-food`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ food_description: description }),
+      });
 
-  if (!permission.granted) {
-    return (
-      <LinearGradient colors={['#0F172A', '#111827']} style={styles.container}>
-        <View style={styles.permissionBox}>
-          <Camera color="#22C55E" size={56} />
-          <Text style={styles.permissionTitle}>Camera Access Needed</Text>
-          <Text style={styles.permissionText}>
-            Allow camera access to snap your food and get instant calorie counts.
-          </Text>
-          <TouchableOpacity style={styles.permissionBtn} onPress={requestPermission}>
-            <Text style={styles.permissionBtnText}>Allow Camera</Text>
-          </TouchableOpacity>
-        </View>
-      </LinearGradient>
-    );
-  }
+      if (response.ok) {
+        const data = await response.json();
+        const calories = data.calories || 300;
 
-  if (analyzing && capturedImage) {
-    return (
-      <View style={styles.container}>
-        <Image source={{ uri: capturedImage }} style={styles.analyzingImage} />
-        <LinearGradient
-          colors={['transparent', 'rgba(0,0,0,0.85)']}
-          style={styles.analyzingOverlay}
-        >
-          <ActivityIndicator color="#22C55E" size="large" />
-          <Text style={styles.analyzingText}>Analyzing your food...</Text>
-          <Text style={styles.analyzingSubtext}>Calculating calories & nutrients</Text>
-        </LinearGradient>
-      </View>
-    );
-  }
+        await supabase.from('food_memory').insert({
+          user_id: userId,
+          food_name: description,
+          calories,
+          protein_g: data.protein_g,
+          carbs_g: data.carbs_g,
+          fat_g: data.fat_g,
+          serving_size: data.serving_size,
+        });
+
+        return calories;
+      }
+    } catch (err) {
+      console.error('AI estimation failed:', err);
+    }
+
+    return 250;
+  };
+
+  const handleLogFood = async () => {
+    if (!foodInput.trim() || !monster || !userId) return;
+
+    setLoading(true);
+    try {
+      const calories = await estimateCalories(foodInput);
+
+      const { data: newLog } = await supabase
+        .from('daily_logs')
+        .insert({
+          user_id: userId,
+          monster_id: monster.id,
+          food_description: foodInput,
+          calories,
+          log_date: new Date().toISOString().split('T')[0],
+        })
+        .select()
+        .maybeSingle();
+
+      const updatedHp = Math.max(0, monster.current_hp - calories);
+      await supabase
+        .from('weekly_monsters')
+        .update({ current_hp: updatedHp })
+        .eq('id', monster.id);
+
+      setMonster({ ...monster, current_hp: updatedHp });
+      setFoodInput('');
+      await loadTodayLogs(userId);
+
+      Animated.sequence([
+        Animated.spring(scaleAnim, { toValue: 1.1, useNativeDriver: true }),
+        Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true }),
+      ]).start();
+    } catch (err) {
+      console.error('Error logging food:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteLog = async (logId: string, calories: number) => {
+    if (!userId || !monster) return;
+    try {
+      await supabase.from('daily_logs').delete().eq('id', logId);
+      const updatedHp = Math.min(monster.initial_hp, monster.current_hp + calories);
+      await supabase
+        .from('weekly_monsters')
+        .update({ current_hp: updatedHp })
+        .eq('id', monster.id);
+      setMonster({ ...monster, current_hp: updatedHp });
+      await loadTodayLogs(userId);
+    } catch (err) {
+      console.error('Error deleting log:', err);
+    }
+  };
+
+  const getMonsterReaction = () => {
+    if (!monster) return { emoji: '😐', status: 'Neutral' };
+    const hpPercent = (monster.current_hp / monster.initial_hp) * 100;
+    if (hpPercent > 70) return { emoji: '😊', status: 'Happy' };
+    if (hpPercent > 30) return { emoji: '😐', status: 'Neutral' };
+    return { emoji: '😠', status: 'Angry' };
+  };
+
+  const monsterState = getMonsterReaction();
+  const hpPercent = monster ? (monster.current_hp / monster.initial_hp) * 100 : 100;
 
   return (
-    <View style={styles.container}>
-      <CameraView ref={cameraRef} style={styles.camera} facing={facing}>
-        <LinearGradient
-          colors={['rgba(0,0,0,0.5)', 'transparent', 'transparent', 'rgba(0,0,0,0.6)']}
-          style={styles.cameraOverlay}
-        >
-          <View style={styles.header}>
-            <Text style={styles.headerTitle}>Food Scanner</Text>
-            <Text style={styles.headerSub}>Point at your meal</Text>
-          </View>
+    <LinearGradient colors={['#0F172A', '#111827']} style={styles.container}>
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <View style={styles.header}>
+          <Text style={styles.title}>Weekly Battle</Text>
+          <Text style={styles.subtitle}>Defeat the monster this week</Text>
+        </View>
 
-          <View style={styles.frameContainer}>
-            <View style={styles.frameTL} />
-            <View style={styles.frameTR} />
-            <View style={styles.frameBL} />
-            <View style={styles.frameBR} />
-          </View>
-
-          <View style={styles.controls}>
-            {error && (
-              <View style={styles.errorBanner}>
-                <Text style={styles.errorText}>{error}</Text>
+        <Animated.View style={[styles.monsterCard, { transform: [{ scale: scaleAnim }] }]}>
+          <LinearGradient colors={['#1F2937', '#1A2535']} style={styles.monsterGradient}>
+            <Text style={styles.monsterEmoji}>{monsterState.emoji}</Text>
+            <Text style={styles.monsterStatus}>{monsterState.status}</Text>
+            <View style={styles.hpContainer}>
+              <View style={styles.hpBarBg}>
+                <View
+                  style={[
+                    styles.hpBar,
+                    {
+                      width: `${hpPercent}%`,
+                      backgroundColor: hpPercent > 70 ? '#22C55E' : hpPercent > 30 ? '#FBBF24' : '#EF4444',
+                    },
+                  ]}
+                />
               </View>
-            )}
-            <View style={styles.controlRow}>
-              <TouchableOpacity
-                style={styles.flipBtn}
-                onPress={() => setFacing((f) => (f === 'back' ? 'front' : 'back'))}
-              >
-                <FlipHorizontal color="#FFFFFF" size={22} />
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.captureBtn} onPress={takePicture}>
-                <Zap color="#111827" size={28} fill="#111827" />
-              </TouchableOpacity>
-
-              <View style={styles.flipBtn} />
+              <Text style={styles.hpText}>
+                {Math.round(monster?.current_hp || 0)} / {Math.round(monster?.initial_hp || 0)} HP
+              </Text>
             </View>
-            <Text style={styles.hint}>Tap to scan your food</Text>
+          </LinearGradient>
+        </Animated.View>
+
+        <View style={styles.foodForm}>
+          <View style={styles.inputContainer}>
+            <TextInput
+              style={styles.input}
+              placeholder="What did you eat? (e.g., curry rice + coffee)"
+              placeholderTextColor="#6B7280"
+              value={foodInput}
+              onChangeText={setFoodInput}
+              editable={!loading}
+            />
+            <TouchableOpacity
+              style={[styles.logButton, loading && styles.buttonDisabled]}
+              onPress={handleLogFood}
+              disabled={loading || !foodInput.trim()}
+            >
+              <Plus color="#0F172A" size={20} />
+            </TouchableOpacity>
           </View>
-        </LinearGradient>
-      </CameraView>
-    </View>
+        </View>
+
+        {todayLogs.length > 0 && (
+          <View style={styles.logsSection}>
+            <Text style={styles.logsTitle}>Today's Meals</Text>
+            {todayLogs.map((log) => (
+              <View key={log.id} style={styles.logItem}>
+                <View style={styles.logContent}>
+                  <Text style={styles.logFood}>{log.food_description}</Text>
+                  <Text style={styles.logCals}>{Math.round(log.calories)} kcal</Text>
+                </View>
+                <TouchableOpacity onPress={() => handleDeleteLog(log.id, log.calories)}>
+                  <Trash2 color="#EF4444" size={18} />
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+        )}
+      </ScrollView>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0F172A',
   },
-  camera: {
-    flex: 1,
-  },
-  cameraOverlay: {
-    flex: 1,
-    justifyContent: 'space-between',
+  scrollContent: {
+    paddingHorizontal: 16,
+    paddingVertical: 20,
   },
   header: {
-    paddingTop: 60,
-    paddingHorizontal: 24,
-    alignItems: 'center',
+    marginBottom: 24,
   },
-  headerTitle: {
-    color: '#FFFFFF',
-    fontSize: 22,
+  title: {
+    fontSize: 28,
     fontWeight: '700',
-    letterSpacing: 0.5,
+    color: '#FFFFFF',
   },
-  headerSub: {
-    color: 'rgba(255,255,255,0.6)',
-    fontSize: 13,
+  subtitle: {
+    fontSize: 14,
+    color: '#9CA3AF',
     marginTop: 4,
   },
-  frameContainer: {
-    width: 260,
-    height: 260,
-    alignSelf: 'center',
+  monsterCard: {
+    marginBottom: 24,
+    borderRadius: 16,
+    overflow: 'hidden',
   },
-  frameTL: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    width: 40,
-    height: 40,
-    borderTopWidth: 3,
-    borderLeftWidth: 3,
-    borderColor: '#22C55E',
-    borderTopLeftRadius: 8,
-  },
-  frameTR: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    width: 40,
-    height: 40,
-    borderTopWidth: 3,
-    borderRightWidth: 3,
-    borderColor: '#22C55E',
-    borderTopRightRadius: 8,
-  },
-  frameBL: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    width: 40,
-    height: 40,
-    borderBottomWidth: 3,
-    borderLeftWidth: 3,
-    borderColor: '#22C55E',
-    borderBottomLeftRadius: 8,
-  },
-  frameBR: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    width: 40,
-    height: 40,
-    borderBottomWidth: 3,
-    borderRightWidth: 3,
-    borderColor: '#22C55E',
-    borderBottomRightRadius: 8,
-  },
-  controls: {
-    paddingBottom: 40,
+  monsterGradient: {
+    paddingVertical: 32,
     alignItems: 'center',
   },
-  controlRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 32,
+  monsterEmoji: {
+    fontSize: 64,
     marginBottom: 12,
   },
-  flipBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  captureBtn: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#22C55E',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#22C55E',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.6,
-    shadowRadius: 16,
-    elevation: 8,
-  },
-  hint: {
-    color: 'rgba(255,255,255,0.5)',
-    fontSize: 12,
-    letterSpacing: 0.5,
-  },
-  errorBanner: {
-    backgroundColor: 'rgba(239,68,68,0.85)',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    marginBottom: 16,
-    marginHorizontal: 24,
-  },
-  errorText: {
+  monsterStatus: {
+    fontSize: 18,
+    fontWeight: '600',
     color: '#FFFFFF',
-    fontSize: 13,
-    textAlign: 'center',
+    marginBottom: 20,
   },
-  analyzingImage: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
+  hpContainer: {
+    width: '100%',
+    paddingHorizontal: 24,
   },
-  analyzingOverlay: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    paddingBottom: 100,
-    gap: 12,
+  hpBarBg: {
+    height: 12,
+    backgroundColor: '#374151',
+    borderRadius: 6,
+    overflow: 'hidden',
+    marginBottom: 12,
   },
-  analyzingText: {
-    color: '#FFFFFF',
-    fontSize: 20,
-    fontWeight: '700',
+  hpBar: {
+    height: '100%',
+    borderRadius: 6,
   },
-  analyzingSubtext: {
-    color: 'rgba(255,255,255,0.6)',
+  hpText: {
     fontSize: 14,
+    color: '#D1D5DB',
+    textAlign: 'center',
   },
-  permissionBox: {
+  foodForm: {
+    marginBottom: 24,
+  },
+  inputContainer: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  input: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 40,
-    gap: 16,
-  },
-  permissionTitle: {
-    color: '#FFFFFF',
-    fontSize: 22,
-    fontWeight: '700',
-    textAlign: 'center',
-    marginTop: 8,
-  },
-  permissionText: {
-    color: '#9CA3AF',
-    fontSize: 15,
-    textAlign: 'center',
-    lineHeight: 22,
-  },
-  permissionBtn: {
-    backgroundColor: '#22C55E',
-    paddingHorizontal: 32,
-    paddingVertical: 14,
+    backgroundColor: '#1F2937',
+    borderWidth: 1,
+    borderColor: '#374151',
     borderRadius: 12,
-    marginTop: 8,
-  },
-  permissionBtnText: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 14,
     color: '#FFFFFF',
+  },
+  logButton: {
+    backgroundColor: '#FBBF24',
+    borderRadius: 12,
+    width: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  buttonDisabled: {
+    opacity: 0.5,
+  },
+  logsSection: {
+    marginBottom: 24,
+  },
+  logsTitle: {
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '600',
+    color: '#FFFFFF',
+    marginBottom: 12,
+  },
+  logItem: {
+    backgroundColor: '#1F2937',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  logContent: {
+    flex: 1,
+  },
+  logFood: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#FFFFFF',
+  },
+  logCals: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    marginTop: 4,
   },
 });

@@ -5,70 +5,78 @@ import {
   StyleSheet,
   FlatList,
   TouchableOpacity,
-  Image,
   ActivityIndicator,
   RefreshControl,
 } from 'react-native';
-import { useFocusEffect, useRouter } from 'expo-router';
-import { supabase, Meal } from '@/lib/supabase';
-import { Flame, Beef, Wheat, Droplets, ChevronRight, ClipboardList } from 'lucide-react-native';
+import { useFocusEffect } from 'expo-router';
+import { supabase } from '@/lib/supabase';
+import { History, Trash2 } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
-export default function HistoryScreen() {
-  const [meals, setMeals] = useState<Meal[]>([]);
+interface DailyLog {
+  id: string;
+  food_description: string;
+  calories: number;
+  log_date: string;
+  created_at: string;
+}
+
+export default function LogScreen() {
+  const [allLogs, setAllLogs] = useState<DailyLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const router = useRouter();
+  const [userId, setUserId] = useState<string | null>(null);
 
-  const fetchMeals = async () => {
-    const { data, error } = await supabase
-      .from('meals')
+  const fetchLogs = async (uid: string) => {
+    const { data } = await supabase
+      .from('daily_logs')
       .select('*')
-      .order('logged_at', { ascending: false })
-      .limit(50);
+      .eq('user_id', uid)
+      .order('created_at', { ascending: false })
+      .limit(100);
 
-    if (!error && data) setMeals(data as Meal[]);
+    setAllLogs(data || []);
     setLoading(false);
     setRefreshing(false);
   };
 
   useFocusEffect(
     useCallback(() => {
-      setLoading(true);
-      fetchMeals();
+      const init = async () => {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user?.id) {
+          setUserId(session.user.id);
+          await fetchLogs(session.user.id);
+        }
+      };
+      init();
     }, [])
   );
 
   const onRefresh = () => {
     setRefreshing(true);
-    fetchMeals();
+    if (userId) fetchLogs(userId);
   };
 
-  const formatDate = (iso: string) => {
-    const d = new Date(iso);
-    const today = new Date();
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-
-    if (d.toDateString() === today.toDateString()) return 'Today';
-    if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const handleDelete = async (logId: string) => {
+    try {
+      await supabase.from('daily_logs').delete().eq('id', logId);
+      setAllLogs(allLogs.filter((l) => l.id !== logId));
+    } catch (err) {
+      console.error('Error deleting log:', err);
+    }
   };
 
-  const formatTime = (iso: string) => {
-    return new Date(iso).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-  };
-
-  const getCalorieColor = (cal: number) => {
-    if (cal < 300) return '#22C55E';
-    if (cal < 600) return '#F59E0B';
-    return '#EF4444';
+  const formatDate = (dateStr: string) => {
+    const d = new Date(dateStr);
+    const today = new Date().toISOString().split('T')[0];
+    return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
   };
 
   if (loading) {
     return (
       <LinearGradient colors={['#0F172A', '#111827']} style={styles.centered}>
-        <ActivityIndicator color="#22C55E" size="large" />
+        <ActivityIndicator color="#FBBF24" size="large" />
       </LinearGradient>
     );
   }
@@ -76,19 +84,19 @@ export default function HistoryScreen() {
   return (
     <LinearGradient colors={['#0F172A', '#111827']} style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Meal History</Text>
-        <Text style={styles.subtitle}>{meals.length} meals logged</Text>
+        <Text style={styles.title}>Food Log</Text>
+        <Text style={styles.subtitle}>{allLogs.length} entries</Text>
       </View>
 
-      {meals.length === 0 ? (
+      {allLogs.length === 0 ? (
         <View style={styles.empty}>
-          <ClipboardList color="#374151" size={64} />
-          <Text style={styles.emptyTitle}>No meals logged yet</Text>
-          <Text style={styles.emptyText}>Scan your first meal to get started</Text>
+          <History color="#374151" size={64} />
+          <Text style={styles.emptyTitle}>No food logged yet</Text>
+          <Text style={styles.emptyText}>Start logging meals in the Battle tab</Text>
         </View>
       ) : (
         <FlatList
-          data={meals}
+          data={allLogs}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}
           showsVerticalScrollIndicator={false}
@@ -96,71 +104,23 @@ export default function HistoryScreen() {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={onRefresh}
-              tintColor="#22C55E"
+              tintColor="#FBBF24"
             />
           }
           renderItem={({ item }) => (
-            <TouchableOpacity
-              style={styles.card}
-              onPress={() =>
-                router.push({
-                  pathname: '/result',
-                  params: {
-                    name: item.name,
-                    calories: String(item.calories),
-                    protein: String(item.protein_g ?? 0),
-                    carbs: String(item.carbs_g ?? 0),
-                    fat: String(item.fat_g ?? 0),
-                    serving: item.serving_size ?? '',
-                    notes: item.notes ?? '',
-                    ingredients: '[]',
-                    confidence: 'high',
-                    imageUri: item.image_url ?? '',
-                  },
-                })
-              }
-            >
-              <View style={styles.cardLeft}>
-                {item.image_url ? (
-                  <Image source={{ uri: item.image_url }} style={styles.thumbnail} />
-                ) : (
-                  <View style={styles.thumbnailPlaceholder}>
-                    <Flame color="#22C55E" size={24} />
-                  </View>
-                )}
+            <View style={styles.logCard}>
+              <View style={styles.logContent}>
+                <Text style={styles.logFood}>{item.food_description}</Text>
+                <Text style={styles.logDate}>{formatDate(item.log_date)}</Text>
               </View>
-
-              <View style={styles.cardBody}>
-                <Text style={styles.mealName} numberOfLines={1}>
-                  {item.name}
-                </Text>
-                <Text style={styles.mealMeta}>
-                  {formatDate(item.logged_at)} · {formatTime(item.logged_at)}
-                </Text>
-                <View style={styles.macroRow}>
-                  <View style={styles.macroItem}>
-                    <Beef color="#60A5FA" size={12} />
-                    <Text style={styles.macroText}>{item.protein_g ?? 0}g</Text>
-                  </View>
-                  <View style={styles.macroItem}>
-                    <Wheat color="#FBBF24" size={12} />
-                    <Text style={styles.macroText}>{item.carbs_g ?? 0}g</Text>
-                  </View>
-                  <View style={styles.macroItem}>
-                    <Droplets color="#F472B6" size={12} />
-                    <Text style={styles.macroText}>{item.fat_g ?? 0}g</Text>
-                  </View>
-                </View>
+              <View style={styles.logRight}>
+                <Text style={styles.logCalories}>{Math.round(item.calories)}</Text>
+                <Text style={styles.logKcal}>kcal</Text>
               </View>
-
-              <View style={styles.cardRight}>
-                <Text style={[styles.calories, { color: getCalorieColor(item.calories) }]}>
-                  {item.calories}
-                </Text>
-                <Text style={styles.kcal}>kcal</Text>
-                <ChevronRight color="#374151" size={16} style={{ marginTop: 4 }} />
-              </View>
-            </TouchableOpacity>
+              <TouchableOpacity onPress={() => handleDelete(item.id)}>
+                <Trash2 color="#EF4444" size={18} />
+              </TouchableOpacity>
+            </View>
           )}
         />
       )}
@@ -182,77 +142,49 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   subtitle: {
-    color: '#6B7280',
+    color: '#9CA3AF',
     fontSize: 14,
     marginTop: 4,
   },
   list: {
     paddingHorizontal: 16,
     paddingBottom: 32,
-    gap: 12,
+    gap: 8,
   },
-  card: {
+  logCard: {
     backgroundColor: '#1F2937',
-    borderRadius: 16,
-    padding: 14,
+    borderRadius: 12,
+    padding: 12,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+    justifyContent: 'space-between',
   },
-  cardLeft: {},
-  thumbnail: {
-    width: 64,
-    height: 64,
-    borderRadius: 10,
-    backgroundColor: '#374151',
-  },
-  thumbnailPlaceholder: {
-    width: 64,
-    height: 64,
-    borderRadius: 10,
-    backgroundColor: '#374151',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cardBody: {
+  logContent: {
     flex: 1,
-    gap: 4,
   },
-  mealName: {
-    color: '#F9FAFB',
-    fontSize: 15,
-    fontWeight: '600',
+  logFood: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '500',
   },
-  mealMeta: {
-    color: '#6B7280',
-    fontSize: 12,
-  },
-  macroRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 2,
-  },
-  macroItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-  },
-  macroText: {
+  logDate: {
     color: '#9CA3AF',
-    fontSize: 11,
+    fontSize: 12,
+    marginTop: 4,
   },
-  cardRight: {
-    alignItems: 'center',
+  logRight: {
+    alignItems: 'flex-end',
+    marginRight: 12,
   },
-  calories: {
-    fontSize: 20,
-    fontWeight: '700',
-  },
-  kcal: {
-    color: '#6B7280',
-    fontSize: 10,
+  logCalories: {
+    color: '#FBBF24',
+    fontSize: 16,
     fontWeight: '600',
-    letterSpacing: 0.5,
+  },
+  logKcal: {
+    color: '#9CA3AF',
+    fontSize: 10,
   },
   empty: {
     flex: 1,
