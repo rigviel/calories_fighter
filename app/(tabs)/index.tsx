@@ -8,10 +8,12 @@ import {
   ensureAnonymousSession,
   getDailyLogs,
   getDailyOverheatState,
-  getDifficultyById,
   getSession,
   getUser,
   getWeeklyMonster,
+  isProfileComplete,
+  recalibrateCurrentWeeklyMonster,
+  processWeekRollover,
   logFoodAndUpdateMonster,
   setDailyOverheatState,
   upsertFoodMemory,
@@ -29,24 +31,9 @@ import {
   type OverheatState,
 } from '@/lib/overheat';
 import { OverheatBar } from '@/components/OverheatBar';
+import { computeWeeklyMonsterHp, getCalorieClass } from '@/lib/metabolism';
+import { getTodayDate, getWeekDates } from '@/lib/dates';
 import { Plus, Trash2 } from 'lucide-react-native';
-
-function getWeekDates() {
-  const now = new Date();
-  const dayOfWeek = now.getDay();
-  const diff = now.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
-  const monday = new Date(now.getFullYear(), now.getMonth(), diff);
-  const sunday = new Date(monday);
-  sunday.setDate(monday.getDate() + 6);
-  return {
-    start: monday.toISOString().split('T')[0],
-    end: sunday.toISOString().split('T')[0],
-  };
-}
-
-function getTodayDate() {
-  return new Date().toISOString().split('T')[0];
-}
 
 function parseCalories(value: string): number | null {
   const parsed = Number.parseInt(value.trim(), 10);
@@ -68,10 +55,10 @@ export default function BattleScreen() {
   const [caloriesInput, setCaloriesInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
-  const [dailyTarget, setDailyTarget] = useState(1444);
   const [overheatState, setOverheatState] = useState<OverheatState>('cool');
   const [emotionText, setEmotionText] = useState('Calm');
   const [error, setError] = useState('');
+  const [profileIncomplete, setProfileIncomplete] = useState(false);
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const shakeAnim = useRef(new Animated.Value(0)).current;
   const trackedDateRef = useRef(getTodayDate());
@@ -79,14 +66,22 @@ export default function BattleScreen() {
   const loadWeeklyMonster = useCallback(async (uid: string): Promise<WeeklyMonster | null> => {
     const { start, end } = getWeekDates();
     const userData = await getUser(uid);
-    const diffData = await getDifficultyById(userData?.current_difficulty_id ?? null);
+    if (!userData || !isProfileComplete(userData) || userData.tdee == null || !userData.calorie_class_id) {
+      setProfileIncomplete(true);
+      setMonster(null);
+      setTodayLogs([]);
+      setError('Complete your Character Stat on the Stats tab before battling.');
+      return null;
+    }
 
-    const deficitPct = diffData?.deficit_percentage ?? 17.5;
-    const deficit = deficitPct / 100;
-    const tdee = userData?.tdee || 1750;
-    const weeklyBudget = tdee * 7 * (1 - deficit);
+    setProfileIncomplete(false);
+    const calorieClass = getCalorieClass(userData.calorie_class_id);
+    const weeklyBudget = computeWeeklyMonsterHp(userData.tdee, calorieClass.deficitPercentage);
 
-    const existingMonster = await getWeeklyMonster(uid, start);
+    let existingMonster = await getWeeklyMonster(uid, start);
+    if (existingMonster) {
+      existingMonster = (await recalibrateCurrentWeeklyMonster(uid)) ?? existingMonster;
+    }
 
     const activeMonster =
       existingMonster ??
@@ -95,11 +90,10 @@ export default function BattleScreen() {
         start,
         end,
         weeklyBudget,
-        userData?.current_difficulty_id ?? null
+        userData.calorie_class_id
       ));
 
-    setMonster(activeMonster);
-    setDailyTarget(getDailyTarget(activeMonster.initial_hp));
+    setMonster({ ...activeMonster });
 
     const today = getTodayDate();
     const logs = await getDailyLogs(uid, {
@@ -135,6 +129,7 @@ export default function BattleScreen() {
         const session = await getSession();
         const uid = session?.user?.id ?? (await ensureAnonymousSession()).user.id;
         setUserId(uid);
+        await processWeekRollover(uid);
         await loadWeeklyMonster(uid);
       };
       init();
@@ -170,7 +165,7 @@ export default function BattleScreen() {
 
       await upsertFoodMemory(userId, foodInput, calories);
 
-      setMonster(updatedMonster);
+      setMonster({ ...updatedMonster });
       setTodayLogs((prev) => [log, ...prev]);
       setFoodInput('');
       setCaloriesInput('');
@@ -192,7 +187,7 @@ export default function BattleScreen() {
     try {
       const updatedMonster = await deleteDailyLogAndRestoreHp(logId);
       if (updatedMonster) {
-        setMonster(updatedMonster);
+        setMonster({ ...updatedMonster });
       }
       setTodayLogs((prev) => prev.filter((l) => l.id !== logId));
     } catch (err) {
@@ -201,7 +196,15 @@ export default function BattleScreen() {
   };
 
   const canLog =
-    foodInput.trim().length > 0 && parseCalories(caloriesInput) !== null && !loading;
+    !profileIncomplete &&
+    foodInput.trim().length > 0 &&
+    parseCalories(caloriesInput) !== null &&
+    !loading;
+
+  const dailyTarget = useMemo(
+    () => (monster ? getDailyTarget(monster.initial_hp) : 0),
+    [monster?.initial_hp]
+  );
 
   const todayIntake = useMemo(() => getTodayIntake(todayLogs), [todayLogs]);
   const usagePercent = useMemo(
@@ -270,6 +273,15 @@ export default function BattleScreen() {
           <Text style={styles.title}>Weekly Battle</Text>
           <Text style={styles.subtitle}>Defeat the monster this week</Text>
         </View>
+
+        {profileIncomplete ? (
+          <View style={styles.profileBanner}>
+            <Text style={styles.profileBannerText}>
+              Complete your Character Stat on the Stats tab (name, sex, age, weight, height, and
+              class) then tap Save.
+            </Text>
+          </View>
+        ) : null}
 
         <Animated.View
           style={[
@@ -399,6 +411,20 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#9CA3AF',
     marginTop: 4,
+  },
+  profileBanner: {
+    marginBottom: 16,
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: '#2D2415',
+    borderWidth: 1,
+    borderColor: '#FBBF24',
+  },
+  profileBannerText: {
+    color: '#FDE68A',
+    fontSize: 13,
+    lineHeight: 18,
+    textAlign: 'center',
   },
   monsterCard: {
     marginBottom: 24,

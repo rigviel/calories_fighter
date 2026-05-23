@@ -8,8 +8,8 @@ import { Zap } from 'lucide-react-native';
 export default function OnboardingScreen() {
   const router = useRouter();
   const [step, setStep] = useState(1);
-  const [weight, setWeight] = useState('70');
-  const [selectedDifficulty, setSelectedDifficulty] = useState('warrior');
+  const [weight, setWeight] = useState('');
+  const [selectedClass, setSelectedClass] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   useEffect(() => {
@@ -18,16 +18,12 @@ export default function OnboardingScreen() {
     });
   }, []);
 
-  const difficulties = [
-    { id: 'beginner', label: 'Beginner Fighter', desc: '~10% deficit', emoji: '🟢' },
-    { id: 'warrior', label: 'Warrior Mode', desc: '~17.5% deficit', emoji: '🟡' },
-    { id: 'elite', label: 'Elite Fighter', desc: '~22.5% deficit', emoji: '🟠' },
-    { id: 'maintenance', label: 'Maintenance Mode', desc: 'No deficit', emoji: '🔵' },
+  const calorieClasses = [
+    { id: 'casual', label: 'Casual', desc: 'Gentle cut · −10%', emoji: '🟢' },
+    { id: 'balanced', label: 'Balanced', desc: 'Moderate cut · −15%', emoji: '🟡' },
+    { id: 'warrior', label: 'Warrior', desc: 'Strong cut · −20%', emoji: '🟠' },
+    { id: 'berserker', label: 'Berserker', desc: 'Aggressive cut · −25%', emoji: '🔴' },
   ];
-
-  const calculateTDEE = (weightKg: number) => {
-    return Math.round(weightKg * 25);
-  };
 
   const handleContinue = async () => {
     if (step === 1) {
@@ -38,6 +34,10 @@ export default function OnboardingScreen() {
       setError('');
       setStep(2);
     } else if (step === 2) {
+      if (!selectedClass) {
+        setError('Please choose a calorie class.');
+        return;
+      }
       setLoading(true);
       setError('');
       try {
@@ -53,8 +53,10 @@ export default function OnboardingScreen() {
           return;
         }
 
-        const tdee = calculateTDEE(parseFloat(weight));
-        await createUser(activeSession.user.id, parseFloat(weight), tdee, selectedDifficulty);
+        await createUser(activeSession.user.id, {
+          weightKg: parseFloat(weight),
+          calorieClassId: selectedClass as 'casual' | 'balanced' | 'warrior' | 'berserker',
+        });
 
         router.replace('/(tabs)');
       } catch (err) {
@@ -92,16 +94,16 @@ export default function OnboardingScreen() {
           </View>
         ) : (
           <View style={styles.stepContainer}>
-            <Text style={styles.stepTitle}>Choose your battle difficulty</Text>
+            <Text style={styles.stepTitle}>Choose your calorie class</Text>
             <View style={styles.difficultiesGrid}>
-              {difficulties.map((diff) => (
+              {calorieClasses.map((diff) => (
                 <TouchableOpacity
                   key={diff.id}
                   style={[
                     styles.difficultyCard,
-                    selectedDifficulty === diff.id && styles.difficultyCardActive,
+                    selectedClass === diff.id && styles.difficultyCardActive,
                   ]}
-                  onPress={() => setSelectedDifficulty(diff.id)}
+                  onPress={() => setSelectedClass(diff.id)}
                 >
                   <Text style={styles.emoji}>{diff.emoji}</Text>
                   <Text style={styles.diffLabel}>{diff.label}</Text>

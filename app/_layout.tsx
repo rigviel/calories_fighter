@@ -1,4 +1,4 @@
-import { Stack } from 'expo-router';
+import { Stack, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useFrameworkReady } from '@/hooks/useFrameworkReady';
 import { useEffect, useState } from 'react';
@@ -8,6 +8,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 
 export default function RootLayout() {
   useFrameworkReady();
+  const segments = useSegments();
   const [isReady, setIsReady] = useState(false);
   const [isOnboarded, setIsOnboarded] = useState(false);
 
@@ -18,6 +19,8 @@ export default function RootLayout() {
 
         if (session?.user?.id) {
           setIsOnboarded(await isUserOnboarded(session.user.id));
+        } else {
+          setIsOnboarded(false);
         }
       } catch (err) {
         console.error('Auth check failed:', err);
@@ -25,7 +28,7 @@ export default function RootLayout() {
       setIsReady(true);
     };
     init();
-  }, []);
+  }, [segments.join('/')]);
 
   if (!isReady) {
     return (
