@@ -5,252 +5,191 @@ import {
   StyleSheet,
   ScrollView,
   ActivityIndicator,
+  TouchableOpacity,
 } from 'react-native';
-import { useFocusEffect } from 'expo-router';
-import { supabase, Meal } from '@/lib/supabase';
-import { Flame, Beef, Wheat, Droplets, TrendingUp, Target } from 'lucide-react-native';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { supabase } from '@/lib/supabase';
+import { TrendingUp, Trophy, Target, Zap } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
-const DAILY_GOALS = {
-  calories: 2000,
-  protein: 150,
-  carbs: 250,
-  fat: 65,
-};
-
-export default function SummaryScreen() {
-  const [meals, setMeals] = useState<Meal[]>([]);
+export default function StatsScreen() {
   const [loading, setLoading] = useState(true);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [monster, setMonster] = useState<any>(null);
+  const [weeklyResults, setWeeklyResults] = useState<any[]>([]);
+  const [totalWins, setTotalWins] = useState(0);
+  const [currentStreak, setCurrentStreak] = useState(0);
+  const router = useRouter();
 
   useFocusEffect(
     useCallback(() => {
-      fetchTodayMeals();
+      const init = async () => {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user?.id) {
+          setUserId(session.user.id);
+          await loadStats(session.user.id);
+        }
+      };
+      init();
     }, [])
   );
 
-  const fetchTodayMeals = async () => {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
+  const loadStats = async (uid: string) => {
+    const { start } = getWeekDates();
 
-    const { data, error } = await supabase
-      .from('meals')
+    const { data: monsterData } = await supabase
+      .from('weekly_monsters')
       .select('*')
-      .gte('logged_at', todayStart.toISOString())
-      .order('logged_at', { ascending: false });
+      .eq('user_id', uid)
+      .eq('week_start', start)
+      .maybeSingle();
 
-    if (!error && data) setMeals(data as Meal[]);
+    setMonster(monsterData);
+
+    const { data: results } = await supabase
+      .from('weekly_results')
+      .select('*')
+      .eq('user_id', uid)
+      .order('week_start', { ascending: false })
+      .limit(10);
+
+    setWeeklyResults(results || []);
+
+    if (results && results.length > 0) {
+      const wins = results.filter((r: any) => r.outcome === 'win').length;
+      setTotalWins(wins);
+
+      let streak = 0;
+      for (const r of results) {
+        if (r.outcome === 'win') streak++;
+        else break;
+      }
+      setCurrentStreak(streak);
+    }
+
     setLoading(false);
   };
 
-  const totals = meals.reduce(
-    (acc, m) => ({
-      calories: acc.calories + (m.calories ?? 0),
-      protein: acc.protein + Number(m.protein_g ?? 0),
-      carbs: acc.carbs + Number(m.carbs_g ?? 0),
-      fat: acc.fat + Number(m.fat_g ?? 0),
-    }),
-    { calories: 0, protein: 0, carbs: 0, fat: 0 }
-  );
-
-  const pct = (val: number, goal: number) => Math.min(Math.round((val / goal) * 100), 100);
-
-  const getProgressColor = (p: number) => {
-    if (p < 50) return '#22C55E';
-    if (p < 85) return '#F59E0B';
-    return '#EF4444';
+  const getWeekDates = () => {
+    const today = new Date();
+    const dayOfWeek = today.getDay();
+    const diff = today.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
+    const monday = new Date(today.setDate(diff));
+    const sunday = new Date(monday);
+    sunday.setDate(sunday.getDate() + 6);
+    return {
+      start: monday.toISOString().split('T')[0],
+      end: sunday.toISOString().split('T')[0],
+    };
   };
 
   if (loading) {
     return (
       <LinearGradient colors={['#0F172A', '#111827']} style={styles.centered}>
-        <ActivityIndicator color="#22C55E" size="large" />
+        <ActivityIndicator color="#FBBF24" size="large" />
       </LinearGradient>
     );
   }
 
-  const calPct = pct(totals.calories, DAILY_GOALS.calories);
+  const hpPercent = monster ? (monster.current_hp / monster.initial_hp) * 100 : 0;
+  const weeklyCaloriesUsed = monster ? monster.initial_hp - monster.current_hp : 0;
 
   return (
     <LinearGradient colors={['#0F172A', '#111827']} style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
         <View style={styles.header}>
-          <Text style={styles.title}>Today's Summary</Text>
-          <Text style={styles.subtitle}>{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</Text>
+          <Text style={styles.title}>Battle Stats</Text>
+          <Text style={styles.subtitle}>Your fighting progress</Text>
         </View>
 
-        {/* Calorie Ring Card */}
-        <View style={styles.heroCard}>
-          <View style={styles.ringContainer}>
-            <View style={[styles.ring, { borderColor: getProgressColor(calPct) }]}>
-              <Flame color={getProgressColor(calPct)} size={28} />
-              <Text style={[styles.ringValue, { color: getProgressColor(calPct) }]}>
-                {totals.calories}
+        <View style={styles.streakCard}>
+          <LinearGradient colors={['#1F2937', '#1A2535']} style={styles.streakGradient}>
+            <Zap color="#FBBF24" size={32} />
+            <Text style={styles.streakValue}>{currentStreak}</Text>
+            <Text style={styles.streakLabel}>Week Win Streak</Text>
+          </LinearGradient>
+        </View>
+
+        <View style={styles.statsGrid}>
+          <View style={styles.statCard}>
+            <Trophy color="#FBBF24" size={24} />
+            <Text style={styles.statValue}>{totalWins}</Text>
+            <Text style={styles.statLabel}>Total Wins</Text>
+          </View>
+          <View style={styles.statCard}>
+            <Target color="#22C55E" size={24} />
+            <Text style={styles.statValue}>{weeklyResults.length}</Text>
+            <Text style={styles.statLabel}>Battles</Text>
+          </View>
+        </View>
+
+        {monster && (
+          <View style={styles.weeklyCard}>
+            <Text style={styles.cardTitle}>This Week's Battle</Text>
+            <View style={styles.weeklyProgress}>
+              <View style={styles.weeklyBar}>
+                <View
+                  style={[
+                    styles.weeklyBarFill,
+                    {
+                      width: `${hpPercent}%`,
+                      backgroundColor: hpPercent > 50 ? '#22C55E' : hpPercent > 25 ? '#FBBF24' : '#EF4444',
+                    },
+                  ]}
+                />
+              </View>
+              <Text style={styles.weeklyText}>
+                {Math.round(monster.current_hp)} / {Math.round(monster.initial_hp)} HP remaining
               </Text>
-              <Text style={styles.ringLabel}>kcal eaten</Text>
             </View>
+            <Text style={styles.weeklyCal}>
+              {Math.round(weeklyCaloriesUsed)} calories consumed this week
+            </Text>
           </View>
-          <View style={styles.heroStats}>
-            <View style={styles.heroStat}>
-              <Text style={styles.heroStatValue}>{DAILY_GOALS.calories - totals.calories}</Text>
-              <Text style={styles.heroStatLabel}>Remaining</Text>
-            </View>
-            <View style={styles.heroDivider} />
-            <View style={styles.heroStat}>
-              <Text style={styles.heroStatValue}>{DAILY_GOALS.calories}</Text>
-              <Text style={styles.heroStatLabel}>Daily Goal</Text>
-            </View>
-            <View style={styles.heroDivider} />
-            <View style={styles.heroStat}>
-              <Text style={styles.heroStatValue}>{meals.length}</Text>
-              <Text style={styles.heroStatLabel}>Meals</Text>
-            </View>
-          </View>
-          <View style={styles.progressBar}>
-            <View
-              style={[
-                styles.progressFill,
-                {
-                  width: `${calPct}%` as any,
-                  backgroundColor: getProgressColor(calPct),
-                },
-              ]}
-            />
-          </View>
-          <Text style={styles.progressText}>{calPct}% of daily goal</Text>
-        </View>
+        )}
 
-        {/* Macros */}
-        <Text style={styles.sectionTitle}>Macronutrients</Text>
-        <View style={styles.macroGrid}>
-          <MacroCard
-            icon={<Beef color="#60A5FA" size={20} />}
-            label="Protein"
-            value={Math.round(totals.protein)}
-            goal={DAILY_GOALS.protein}
-            unit="g"
-            color="#60A5FA"
-          />
-          <MacroCard
-            icon={<Wheat color="#FBBF24" size={20} />}
-            label="Carbs"
-            value={Math.round(totals.carbs)}
-            goal={DAILY_GOALS.carbs}
-            unit="g"
-            color="#FBBF24"
-          />
-          <MacroCard
-            icon={<Droplets color="#F472B6" size={20} />}
-            label="Fat"
-            value={Math.round(totals.fat)}
-            goal={DAILY_GOALS.fat}
-            unit="g"
-            color="#F472B6"
-          />
-        </View>
-
-        {/* Recent meals */}
-        {meals.length > 0 && (
+        {weeklyResults.length > 0 && (
           <>
-            <Text style={styles.sectionTitle}>Today's Meals</Text>
-            <View style={styles.mealList}>
-              {meals.map((m) => (
-                <View key={m.id} style={styles.mealRow}>
-                  <View style={styles.mealDot} />
-                  <Text style={styles.mealRowName} numberOfLines={1}>
-                    {m.name}
+            <Text style={styles.sectionTitle}>Battle History</Text>
+            {weeklyResults.map((result: any, idx: number) => (
+              <View key={result.id || idx} style={styles.resultCard}>
+                <View style={styles.resultMain}>
+                  <Text style={styles.resultDate}>
+                    {new Date(result.week_start).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                   </Text>
-                  <Text style={styles.mealRowCal}>{m.calories} kcal</Text>
+                  <View style={[styles.outcomeBadge, { backgroundColor: getOutcomeColor(result.outcome) }]}>
+                    <Text style={styles.outcomeText}>{result.outcome.toUpperCase()}</Text>
+                  </View>
                 </View>
-              ))}
-            </View>
+                <View style={styles.resultStats}>
+                  <Text style={styles.resultCal}>
+                    {Math.round(result.total_calories)} / {Math.round(result.target_calories)} kcal
+                  </Text>
+                  {result.badge_earned && (
+                    <Text style={styles.resultBadge}>🏅 {result.badge_earned}</Text>
+                  )}
+                </View>
+              </View>
+            ))}
           </>
+        )}
+
+        {weeklyResults.length === 0 && (
+          <View style={styles.emptyResults}>
+            <TrendingUp color="#374151" size={48} />
+            <Text style={styles.emptyText}>Complete your first week to see results</Text>
+          </View>
         )}
       </ScrollView>
     </LinearGradient>
   );
 }
 
-function MacroCard({
-  icon,
-  label,
-  value,
-  goal,
-  unit,
-  color,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: number;
-  goal: number;
-  unit: string;
-  color: string;
-}) {
-  const p = Math.min(Math.round((value / goal) * 100), 100);
-  return (
-    <View style={macroStyles.card}>
-      <View style={macroStyles.top}>
-        {icon}
-        <Text style={macroStyles.label}>{label}</Text>
-      </View>
-      <Text style={[macroStyles.value, { color }]}>
-        {value}
-        <Text style={macroStyles.unit}>{unit}</Text>
-      </Text>
-      <View style={macroStyles.bar}>
-        <View style={[macroStyles.barFill, { width: `${p}%` as any, backgroundColor: color }]} />
-      </View>
-      <Text style={macroStyles.goal}>
-        {p}% of {goal}
-        {unit}
-      </Text>
-    </View>
-  );
+function getOutcomeColor(outcome: string): string {
+  if (outcome === 'win') return '#22C55E';
+  if (outcome === 'partial') return '#FBBF24';
+  return '#EF4444';
 }
-
-const macroStyles = StyleSheet.create({
-  card: {
-    flex: 1,
-    backgroundColor: '#1F2937',
-    borderRadius: 16,
-    padding: 14,
-    gap: 6,
-  },
-  top: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  label: {
-    color: '#9CA3AF',
-    fontSize: 12,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  value: {
-    fontSize: 24,
-    fontWeight: '700',
-  },
-  unit: {
-    fontSize: 13,
-    fontWeight: '400',
-    color: '#6B7280',
-  },
-  bar: {
-    height: 4,
-    backgroundColor: '#374151',
-    borderRadius: 2,
-    overflow: 'hidden',
-  },
-  barFill: {
-    height: '100%',
-    borderRadius: 2,
-  },
-  goal: {
-    color: '#6B7280',
-    fontSize: 10,
-  },
-});
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
@@ -269,119 +208,148 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   subtitle: {
-    color: '#6B7280',
+    color: '#9CA3AF',
     fontSize: 14,
     marginTop: 4,
   },
-  heroCard: {
+  streakCard: {
     marginHorizontal: 16,
+    marginBottom: 16,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  streakGradient: {
+    paddingVertical: 24,
+    alignItems: 'center',
+    gap: 8,
+  },
+  streakValue: {
+    fontSize: 48,
+    fontWeight: '700',
+    color: '#FBBF24',
+  },
+  streakLabel: {
+    fontSize: 14,
+    color: '#9CA3AF',
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    gap: 12,
+    marginBottom: 16,
+  },
+  statCard: {
+    flex: 1,
     backgroundColor: '#1F2937',
-    borderRadius: 20,
-    padding: 24,
+    borderRadius: 16,
+    padding: 16,
     alignItems: 'center',
-    gap: 16,
+    gap: 8,
   },
-  ringContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  ring: {
-    width: 130,
-    height: 130,
-    borderRadius: 65,
-    borderWidth: 6,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 2,
-  },
-  ringValue: {
+  statValue: {
     fontSize: 28,
     fontWeight: '700',
+    color: '#FFFFFF',
   },
-  ringLabel: {
-    color: '#6B7280',
-    fontSize: 11,
+  statLabel: {
+    fontSize: 12,
+    color: '#9CA3AF',
   },
-  heroStats: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 16,
+  weeklyCard: {
+    marginHorizontal: 16,
+    backgroundColor: '#1F2937',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
   },
-  heroStat: {
-    alignItems: 'center',
+  cardTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    marginBottom: 12,
   },
-  heroStatValue: {
-    color: '#F9FAFB',
-    fontSize: 18,
-    fontWeight: '700',
+  weeklyProgress: {
+    marginBottom: 12,
   },
-  heroStatLabel: {
-    color: '#6B7280',
-    fontSize: 11,
-    marginTop: 2,
-  },
-  heroDivider: {
-    width: 1,
-    height: 32,
-    backgroundColor: '#374151',
-  },
-  progressBar: {
-    width: '100%',
+  weeklyBar: {
     height: 8,
     backgroundColor: '#374151',
     borderRadius: 4,
     overflow: 'hidden',
+    marginBottom: 8,
   },
-  progressFill: {
+  weeklyBarFill: {
     height: '100%',
     borderRadius: 4,
   },
-  progressText: {
-    color: '#6B7280',
+  weeklyText: {
+    fontSize: 13,
+    color: '#D1D5DB',
+    textAlign: 'center',
+  },
+  weeklyCal: {
     fontSize: 12,
+    color: '#9CA3AF',
+    textAlign: 'center',
   },
   sectionTitle: {
     color: '#F9FAFB',
     fontSize: 18,
     fontWeight: '700',
     paddingHorizontal: 24,
-    marginTop: 24,
+    marginTop: 16,
     marginBottom: 12,
   },
-  macroGrid: {
-    flexDirection: 'row',
-    paddingHorizontal: 16,
-    gap: 10,
-  },
-  mealList: {
+  resultCard: {
     marginHorizontal: 16,
     backgroundColor: '#1F2937',
-    borderRadius: 16,
-    overflow: 'hidden',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
   },
-  mealRow: {
+  resultMain: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#374151',
-    gap: 10,
+    marginBottom: 8,
   },
-  mealDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#22C55E',
-  },
-  mealRowName: {
-    flex: 1,
-    color: '#E5E7EB',
+  resultDate: {
     fontSize: 14,
-  },
-  mealRowCal: {
-    color: '#9CA3AF',
-    fontSize: 13,
     fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  outcomeBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  outcomeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  resultStats: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  resultCal: {
+    fontSize: 12,
+    color: '#9CA3AF',
+  },
+  resultBadge: {
+    fontSize: 12,
+    color: '#FBBF24',
+  },
+  emptyResults: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 48,
+    gap: 12,
+  },
+  emptyText: {
+    fontSize: 14,
+    color: '#6B7280',
+    textAlign: 'center',
   },
 });
