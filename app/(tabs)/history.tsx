@@ -9,7 +9,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { useFocusEffect } from 'expo-router';
-import { supabase } from '@/lib/supabase';
+import { deleteDailyLog, getDailyLogs, getSession } from '@/lib/local-store';
 import { History, Trash2 } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -28,14 +28,9 @@ export default function LogScreen() {
   const [userId, setUserId] = useState<string | null>(null);
 
   const fetchLogs = async (uid: string) => {
-    const { data } = await supabase
-      .from('daily_logs')
-      .select('*')
-      .eq('user_id', uid)
-      .order('created_at', { ascending: false })
-      .limit(100);
+    const data = await getDailyLogs(uid, { limit: 100 });
 
-    setAllLogs(data || []);
+    setAllLogs(data);
     setLoading(false);
     setRefreshing(false);
   };
@@ -43,10 +38,12 @@ export default function LogScreen() {
   useFocusEffect(
     useCallback(() => {
       const init = async () => {
-        const { data: { session } } = await supabase.auth.getSession();
+        const session = await getSession();
         if (session?.user?.id) {
           setUserId(session.user.id);
           await fetchLogs(session.user.id);
+        } else {
+          setLoading(false);
         }
       };
       init();
@@ -60,7 +57,7 @@ export default function LogScreen() {
 
   const handleDelete = async (logId: string) => {
     try {
-      await supabase.from('daily_logs').delete().eq('id', logId);
+      await deleteDailyLog(logId);
       setAllLogs(allLogs.filter((l) => l.id !== logId));
     } catch (err) {
       console.error('Error deleting log:', err);

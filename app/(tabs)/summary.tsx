@@ -8,7 +8,7 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { supabase } from '@/lib/supabase';
+import { getSession, getWeeklyMonster, getWeeklyResults } from '@/lib/local-store';
 import { TrendingUp, Trophy, Target, Zap } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -24,10 +24,12 @@ export default function StatsScreen() {
   useFocusEffect(
     useCallback(() => {
       const init = async () => {
-        const { data: { session } } = await supabase.auth.getSession();
+        const session = await getSession();
         if (session?.user?.id) {
           setUserId(session.user.id);
           await loadStats(session.user.id);
+        } else {
+          setLoading(false);
         }
       };
       init();
@@ -37,23 +39,13 @@ export default function StatsScreen() {
   const loadStats = async (uid: string) => {
     const { start } = getWeekDates();
 
-    const { data: monsterData } = await supabase
-      .from('weekly_monsters')
-      .select('*')
-      .eq('user_id', uid)
-      .eq('week_start', start)
-      .maybeSingle();
+    const monsterData = await getWeeklyMonster(uid, start);
 
     setMonster(monsterData);
 
-    const { data: results } = await supabase
-      .from('weekly_results')
-      .select('*')
-      .eq('user_id', uid)
-      .order('week_start', { ascending: false })
-      .limit(10);
+    const results = await getWeeklyResults(uid, 10);
 
-    setWeeklyResults(results || []);
+    setWeeklyResults(results);
 
     if (results && results.length > 0) {
       const wins = results.filter((r: any) => r.outcome === 'win').length;

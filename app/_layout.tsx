@@ -2,7 +2,7 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useFrameworkReady } from '@/hooks/useFrameworkReady';
 import { useEffect, useState } from 'react';
-import { supabase } from '@/lib/supabase';
+import { getSession, isUserOnboarded } from '@/lib/local-store';
 import { View, ActivityIndicator } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -14,15 +14,10 @@ export default function RootLayout() {
   useEffect(() => {
     const init = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        const session = await getSession();
 
         if (session?.user?.id) {
-          const { data } = await supabase
-            .from('users')
-            .select('id')
-            .eq('id', session.user.id)
-            .maybeSingle();
-          setIsOnboarded(!!data);
+          setIsOnboarded(await isUserOnboarded(session.user.id));
         }
       } catch (err) {
         console.error('Auth check failed:', err);

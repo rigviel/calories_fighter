@@ -1,14 +1,57 @@
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Animated } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useState, useEffect, useRef } from 'react';
-import { supabase } from '@/lib/supabase';
-import { Zap, Plus, Trash2 } from 'lucide-react-native';
+import { useState, useCallback, useRef, useMemo, useEffect } from 'react';
+import { useFocusEffect } from 'expo-router';
+import {
+  createWeeklyMonster,
+  deleteDailyLogAndRestoreHp,
+  ensureAnonymousSession,
+  getDailyLogs,
+  getDailyOverheatState,
+  getDifficultyById,
+  getSession,
+  getUser,
+  getWeeklyMonster,
+  logFoodAndUpdateMonster,
+  setDailyOverheatState,
+  upsertFoodMemory,
+  type WeeklyMonster,
+} from '@/lib/local-store';
+import {
+  computeOverheatState,
+  getDailyTarget,
+  getMonsterExpression,
+  getTodayIntake,
+  getUsagePercent,
+  hasCrossedThreshold,
+  pickEmotionText,
+  shouldShake,
+  type OverheatState,
+} from '@/lib/overheat';
+import { OverheatBar } from '@/components/OverheatBar';
+import { Plus, Trash2 } from 'lucide-react-native';
 
-interface Monster {
-  id: string;
-  initial_hp: number;
-  current_hp: number;
-  week_start: string;
+function getWeekDates() {
+  const now = new Date();
+  const dayOfWeek = now.getDay();
+  const diff = now.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
+  const monday = new Date(now.getFullYear(), now.getMonth(), diff);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  return {
+    start: monday.toISOString().split('T')[0],
+    end: sunday.toISOString().split('T')[0],
+  };
+}
+
+function getTodayDate() {
+  return new Date().toISOString().split('T')[0];
+}
+
+function parseCalories(value: string): number | null {
+  const parsed = Number.parseInt(value.trim(), 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return parsed;
 }
 
 interface DailyLog {
@@ -19,185 +62,118 @@ interface DailyLog {
 }
 
 export default function BattleScreen() {
-  const [monster, setMonster] = useState<Monster | null>(null);
+  const [monster, setMonster] = useState<WeeklyMonster | null>(null);
   const [todayLogs, setTodayLogs] = useState<DailyLog[]>([]);
   const [foodInput, setFoodInput] = useState('');
+  const [caloriesInput, setCaloriesInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
+  const [dailyTarget, setDailyTarget] = useState(1444);
+  const [overheatState, setOverheatState] = useState<OverheatState>('cool');
+  const [emotionText, setEmotionText] = useState('Calm');
+  const [error, setError] = useState('');
   const scaleAnim = useRef(new Animated.Value(1)).current;
+  const shakeAnim = useRef(new Animated.Value(0)).current;
+  const trackedDateRef = useRef(getTodayDate());
 
-  useEffect(() => {
-    const init = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user?.id) {
-        setUserId(session.user.id);
-        await loadWeeklyMonster(session.user.id);
-      }
-    };
-    init();
+  const loadWeeklyMonster = useCallback(async (uid: string): Promise<WeeklyMonster | null> => {
+    const { start, end } = getWeekDates();
+    const userData = await getUser(uid);
+    const diffData = await getDifficultyById(userData?.current_difficulty_id ?? null);
+
+    const deficitPct = diffData?.deficit_percentage ?? 17.5;
+    const deficit = deficitPct / 100;
+    const tdee = userData?.tdee || 1750;
+    const weeklyBudget = tdee * 7 * (1 - deficit);
+
+    const existingMonster = await getWeeklyMonster(uid, start);
+
+    const activeMonster =
+      existingMonster ??
+      (await createWeeklyMonster(
+        uid,
+        start,
+        end,
+        weeklyBudget,
+        userData?.current_difficulty_id ?? null
+      ));
+
+    setMonster(activeMonster);
+    setDailyTarget(getDailyTarget(activeMonster.initial_hp));
+
+    const today = getTodayDate();
+    const logs = await getDailyLogs(uid, {
+      monsterId: activeMonster.id,
+      logDate: today,
+    });
+    setTodayLogs(logs);
+
+    const intake = getTodayIntake(logs);
+    const usage = getUsagePercent(intake, getDailyTarget(activeMonster.initial_hp));
+    const computed = computeOverheatState(usage);
+    trackedDateRef.current = today;
+
+    const stored = await getDailyOverheatState(uid, today);
+    let state: OverheatState = stored?.state ?? computed;
+    if (stored && hasCrossedThreshold(stored.state, usage)) {
+      state = computed;
+      await setDailyOverheatState(uid, today, state);
+    } else if (!stored) {
+      await setDailyOverheatState(uid, today, state);
+    }
+
+    setOverheatState(state);
+    setEmotionText(pickEmotionText(state, logs.length));
+
+    return activeMonster;
   }, []);
 
-  const getWeekDates = () => {
-    const today = new Date();
-    const dayOfWeek = today.getDay();
-    const diff = today.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
-    const monday = new Date(today.setDate(diff));
-    const sunday = new Date(monday);
-    sunday.setDate(sunday.getDate() + 6);
-    return {
-      start: monday.toISOString().split('T')[0],
-      end: sunday.toISOString().split('T')[0],
-    };
-  };
-
-  const loadWeeklyMonster = async (uid: string) => {
-    const { start, end } = getWeekDates();
-    const { data: userData } = await supabase
-      .from('users')
-      .select('tdee, current_difficulty_id')
-      .eq('id', uid)
-      .maybeSingle();
-
-    const { data: diffData } = await supabase
-      .from('difficulties')
-      .select('deficit_percentage')
-      .eq('id', userData?.current_difficulty_id)
-      .maybeSingle();
-
-    const deficit = (diffData?.deficit_percentage || 17.5) / 100;
-    const weeklyBudget = (userData?.tdee || 1750) * 7 * (1 - deficit);
-
-    const { data: existingMonster } = await supabase
-      .from('weekly_monsters')
-      .select('*')
-      .eq('user_id', uid)
-      .eq('week_start', start)
-      .maybeSingle();
-
-    if (existingMonster) {
-      setMonster(existingMonster as Monster);
-    } else {
-      const { data: newMonster } = await supabase
-        .from('weekly_monsters')
-        .insert({
-          user_id: uid,
-          week_start: start,
-          week_end: end,
-          initial_hp: weeklyBudget,
-          current_hp: weeklyBudget,
-          difficulty_id: userData?.current_difficulty_id,
-        })
-        .select()
-        .maybeSingle();
-      setMonster(newMonster as Monster);
-    }
-
-    await loadTodayLogs(uid);
-  };
-
-  const loadTodayLogs = async (uid: string) => {
-    const today = new Date().toISOString().split('T')[0];
-    const { start } = getWeekDates();
-
-    const { data: monsterData } = await supabase
-      .from('weekly_monsters')
-      .select('id')
-      .eq('user_id', uid)
-      .eq('week_start', start)
-      .maybeSingle();
-
-    if (monsterData) {
-      const { data: logs } = await supabase
-        .from('daily_logs')
-        .select('*')
-        .eq('user_id', uid)
-        .eq('monster_id', monsterData.id)
-        .eq('log_date', today)
-        .order('created_at', { ascending: false });
-      setTodayLogs(logs || []);
-    }
-  };
-
-  const estimateCalories = async (description: string): Promise<number> => {
-    if (!userId) return 0;
-
-    const { data: foodMem } = await supabase
-      .from('food_memory')
-      .select('calories, times_logged')
-      .eq('user_id', userId)
-      .ilike('food_name', description)
-      .maybeSingle();
-
-    if (foodMem) {
-      await supabase
-        .from('food_memory')
-        .update({ times_logged: foodMem.times_logged + 1, last_used: new Date().toISOString() })
-        .ilike('food_name', description)
-        .eq('user_id', userId);
-      return foodMem.calories;
-    }
-
-    try {
-      const response = await fetch(`${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/estimate-food`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ food_description: description }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        const calories = data.calories || 300;
-
-        await supabase.from('food_memory').insert({
-          user_id: userId,
-          food_name: description,
-          calories,
-          protein_g: data.protein_g,
-          carbs_g: data.carbs_g,
-          fat_g: data.fat_g,
-          serving_size: data.serving_size,
-        });
-
-        return calories;
-      }
-    } catch (err) {
-      console.error('AI estimation failed:', err);
-    }
-
-    return 250;
-  };
+  useFocusEffect(
+    useCallback(() => {
+      const init = async () => {
+        setError('');
+        const session = await getSession();
+        const uid = session?.user?.id ?? (await ensureAnonymousSession()).user.id;
+        setUserId(uid);
+        await loadWeeklyMonster(uid);
+      };
+      init();
+    }, [loadWeeklyMonster])
+  );
 
   const handleLogFood = async () => {
-    if (!foodInput.trim() || !monster || !userId) return;
+    const calories = parseCalories(caloriesInput);
+    if (!foodInput.trim() || calories === null || !userId) {
+      setError('Enter a food name and valid calories.');
+      return;
+    }
 
     setLoading(true);
+    setError('');
     try {
-      const calories = await estimateCalories(foodInput);
+      let activeMonster = monster;
+      if (!activeMonster) {
+        activeMonster = await loadWeeklyMonster(userId);
+      }
+      if (!activeMonster) {
+        setError('Could not load your weekly monster. Try again.');
+        return;
+      }
 
-      const { data: newLog } = await supabase
-        .from('daily_logs')
-        .insert({
-          user_id: userId,
-          monster_id: monster.id,
-          food_description: foodInput,
-          calories,
-          log_date: new Date().toISOString().split('T')[0],
-        })
-        .select()
-        .maybeSingle();
+      const { log, monster: updatedMonster } = await logFoodAndUpdateMonster(
+        userId,
+        activeMonster.id,
+        foodInput,
+        calories,
+        getTodayDate()
+      );
 
-      const updatedHp = Math.max(0, monster.current_hp - calories);
-      await supabase
-        .from('weekly_monsters')
-        .update({ current_hp: updatedHp })
-        .eq('id', monster.id);
+      await upsertFoodMemory(userId, foodInput, calories);
 
-      setMonster({ ...monster, current_hp: updatedHp });
+      setMonster(updatedMonster);
+      setTodayLogs((prev) => [log, ...prev]);
       setFoodInput('');
-      await loadTodayLogs(userId);
+      setCaloriesInput('');
 
       Animated.sequence([
         Animated.spring(scaleAnim, { toValue: 1.1, useNativeDriver: true }),
@@ -205,37 +181,87 @@ export default function BattleScreen() {
       ]).start();
     } catch (err) {
       console.error('Error logging food:', err);
+      setError('Failed to log food. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleDeleteLog = async (logId: string, calories: number) => {
-    if (!userId || !monster) return;
+  const handleDeleteLog = async (logId: string) => {
+    if (!userId) return;
     try {
-      await supabase.from('daily_logs').delete().eq('id', logId);
-      const updatedHp = Math.min(monster.initial_hp, monster.current_hp + calories);
-      await supabase
-        .from('weekly_monsters')
-        .update({ current_hp: updatedHp })
-        .eq('id', monster.id);
-      setMonster({ ...monster, current_hp: updatedHp });
-      await loadTodayLogs(userId);
+      const updatedMonster = await deleteDailyLogAndRestoreHp(logId);
+      if (updatedMonster) {
+        setMonster(updatedMonster);
+      }
+      setTodayLogs((prev) => prev.filter((l) => l.id !== logId));
     } catch (err) {
       console.error('Error deleting log:', err);
     }
   };
 
-  const getMonsterReaction = () => {
-    if (!monster) return { emoji: '😐', status: 'Neutral' };
-    const hpPercent = (monster.current_hp / monster.initial_hp) * 100;
-    if (hpPercent > 70) return { emoji: '😊', status: 'Happy' };
-    if (hpPercent > 30) return { emoji: '😐', status: 'Neutral' };
-    return { emoji: '😠', status: 'Angry' };
-  };
+  const canLog =
+    foodInput.trim().length > 0 && parseCalories(caloriesInput) !== null && !loading;
 
-  const monsterState = getMonsterReaction();
+  const todayIntake = useMemo(() => getTodayIntake(todayLogs), [todayLogs]);
+  const usagePercent = useMemo(
+    () => getUsagePercent(todayIntake, dailyTarget),
+    [todayIntake, dailyTarget]
+  );
+  const monsterExpression = useMemo(
+    () => getMonsterExpression(overheatState),
+    [overheatState]
+  );
   const hpPercent = monster ? (monster.current_hp / monster.initial_hp) * 100 : 100;
+  const shakeLevel = shouldShake(overheatState);
+
+  useEffect(() => {
+    if (!userId || dailyTarget <= 0) return;
+
+    const today = getTodayDate();
+    const usage = getUsagePercent(todayIntake, dailyTarget);
+    const computed = computeOverheatState(usage);
+
+    if (today !== trackedDateRef.current) {
+      trackedDateRef.current = today;
+      setOverheatState('cool');
+      setEmotionText(pickEmotionText('cool', 0));
+      void setDailyOverheatState(userId, today, 'cool');
+      return;
+    }
+
+    if (hasCrossedThreshold(overheatState, usage)) {
+      setOverheatState(computed);
+      setEmotionText(pickEmotionText(computed, todayLogs.length));
+      void setDailyOverheatState(userId, today, computed);
+    }
+  }, [todayIntake, dailyTarget, userId, todayLogs.length, overheatState]);
+
+  useEffect(() => {
+    if (shakeLevel === 'none') {
+      shakeAnim.setValue(0);
+      return;
+    }
+
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(shakeAnim, { toValue: 1, duration: 80, useNativeDriver: true }),
+        Animated.timing(shakeAnim, { toValue: -1, duration: 80, useNativeDriver: true }),
+        Animated.timing(shakeAnim, { toValue: 0, duration: 80, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [shakeLevel, shakeAnim]);
+
+  const shakeTranslate = useMemo(
+    () =>
+      shakeAnim.interpolate({
+        inputRange: [-1, 1],
+        outputRange: shakeLevel === 'slight' ? [-2, 2] : [-5, 5],
+      }),
+    [shakeAnim, shakeLevel]
+  );
 
   return (
     <LinearGradient colors={['#0F172A', '#111827']} style={styles.container}>
@@ -245,10 +271,44 @@ export default function BattleScreen() {
           <Text style={styles.subtitle}>Defeat the monster this week</Text>
         </View>
 
-        <Animated.View style={[styles.monsterCard, { transform: [{ scale: scaleAnim }] }]}>
-          <LinearGradient colors={['#1F2937', '#1A2535']} style={styles.monsterGradient}>
-            <Text style={styles.monsterEmoji}>{monsterState.emoji}</Text>
-            <Text style={styles.monsterStatus}>{monsterState.status}</Text>
+        <Animated.View
+          style={[
+            styles.monsterCard,
+            {
+              transform: [
+                { scale: scaleAnim },
+                { translateX: shakeLevel !== 'none' ? shakeTranslate : 0 },
+              ],
+            },
+          ]}
+        >
+          <LinearGradient
+            colors={
+              overheatState === 'overheat'
+                ? ['#3B1F1F', '#1A2535']
+                : ['#1F2937', '#1A2535']
+            }
+            style={styles.monsterGradient}
+          >
+            <Text style={styles.monsterEmoji}>{monsterExpression.emoji}</Text>
+            <Text
+              style={[
+                styles.emotionText,
+                overheatState === 'cool' && styles.emotionCool,
+                overheatState === 'warm' && styles.emotionWarm,
+                overheatState === 'hot' && styles.emotionHot,
+                overheatState === 'overheat' && styles.emotionOverheat,
+              ]}
+            >
+              {emotionText}
+            </Text>
+            <OverheatBar
+              usagePercent={usagePercent}
+              state={overheatState}
+              todayIntake={todayIntake}
+              dailyTarget={dailyTarget}
+            />
+
             <View style={styles.hpContainer}>
               <View style={styles.hpBarBg}>
                 <View
@@ -272,20 +332,30 @@ export default function BattleScreen() {
           <View style={styles.inputContainer}>
             <TextInput
               style={styles.input}
-              placeholder="What did you eat? (e.g., curry rice + coffee)"
+              placeholder="What did you eat?"
               placeholderTextColor="#6B7280"
               value={foodInput}
               onChangeText={setFoodInput}
               editable={!loading}
             />
+            <TextInput
+              style={styles.caloriesInput}
+              placeholder="kcal"
+              placeholderTextColor="#6B7280"
+              keyboardType="number-pad"
+              value={caloriesInput}
+              onChangeText={setCaloriesInput}
+              editable={!loading}
+            />
             <TouchableOpacity
-              style={[styles.logButton, loading && styles.buttonDisabled]}
+              style={[styles.logButton, !canLog && styles.buttonDisabled]}
               onPress={handleLogFood}
-              disabled={loading || !foodInput.trim()}
+              disabled={!canLog}
             >
               <Plus color="#0F172A" size={20} />
             </TouchableOpacity>
           </View>
+          {error ? <Text style={styles.errorText}>{error}</Text> : null}
         </View>
 
         {todayLogs.length > 0 && (
@@ -297,7 +367,7 @@ export default function BattleScreen() {
                   <Text style={styles.logFood}>{log.food_description}</Text>
                   <Text style={styles.logCals}>{Math.round(log.calories)} kcal</Text>
                 </View>
-                <TouchableOpacity onPress={() => handleDeleteLog(log.id, log.calories)}>
+                <TouchableOpacity onPress={() => handleDeleteLog(log.id)}>
                   <Trash2 color="#EF4444" size={18} />
                 </TouchableOpacity>
               </View>
@@ -341,14 +411,18 @@ const styles = StyleSheet.create({
   },
   monsterEmoji: {
     fontSize: 64,
-    marginBottom: 12,
+    marginBottom: 8,
   },
-  monsterStatus: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#FFFFFF',
-    marginBottom: 20,
+  emotionText: {
+    fontSize: 22,
+    fontWeight: '700',
+    marginBottom: 16,
+    letterSpacing: 0.5,
   },
+  emotionCool: { color: '#4ADE80' },
+  emotionWarm: { color: '#FBBF24' },
+  emotionHot: { color: '#FB923C' },
+  emotionOverheat: { color: '#EF4444' },
   hpContainer: {
     width: '100%',
     paddingHorizontal: 24,
@@ -386,6 +460,24 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     fontSize: 14,
     color: '#FFFFFF',
+  },
+  caloriesInput: {
+    width: 72,
+    backgroundColor: '#1F2937',
+    borderWidth: 1,
+    borderColor: '#374151',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    fontSize: 14,
+    color: '#FFFFFF',
+    textAlign: 'center',
+  },
+  errorText: {
+    color: '#EF4444',
+    fontSize: 13,
+    marginTop: 8,
+    paddingHorizontal: 4,
   },
   logButton: {
     backgroundColor: '#FBBF24',

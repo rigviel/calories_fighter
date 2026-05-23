@@ -1,7 +1,7 @@
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
+import { createUser, ensureAnonymousSession, getSession } from '@/lib/local-store';
 import { useRouter } from 'expo-router';
 import { Zap } from 'lucide-react-native';
 
@@ -12,28 +12,11 @@ export default function OnboardingScreen() {
   const [selectedDifficulty, setSelectedDifficulty] = useState('warrior');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [session, setSession] = useState<any>(null);
-
   useEffect(() => {
-    const checkAuth = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      setSession(session);
-
-      if (!session) {
-        await signUpAnonymous();
-      }
-    };
-    checkAuth();
-  }, []);
-
-  const signUpAnonymous = async () => {
-    try {
-      const { data } = await supabase.auth.signInAnonymously();
-      setSession(data.session);
-    } catch (err) {
+    ensureAnonymousSession().catch((err) => {
       console.error('Auth error:', err);
-    }
-  };
+    });
+  }, []);
 
   const difficulties = [
     { id: 'beginner', label: 'Beginner Fighter', desc: '~10% deficit', emoji: '🟢' },
@@ -58,45 +41,20 @@ export default function OnboardingScreen() {
       setLoading(true);
       setError('');
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        const session = await getSession();
         if (!session?.user?.id) {
+          await ensureAnonymousSession();
+        }
+
+        const activeSession = await getSession();
+        if (!activeSession?.user?.id) {
           setError('Authentication failed. Please try again.');
           setLoading(false);
           return;
         }
 
         const tdee = calculateTDEE(parseFloat(weight));
-
-        const { error: insertErr } = await supabase.from('users').insert({
-          id: session.user.id,
-          weight_kg: parseFloat(weight),
-          tdee,
-          current_difficulty_id: null,
-        });
-
-        if (insertErr && insertErr.code !== '23505') {
-          throw insertErr;
-        }
-
-        const diffLookup: Record<string, string> = {
-          beginner: 'beginner',
-          warrior: 'warrior',
-          elite: 'elite',
-          maintenance: 'maintenance',
-        };
-
-        const { data: diffData } = await supabase
-          .from('difficulties')
-          .select('id')
-          .eq('name', diffLookup[selectedDifficulty])
-          .maybeSingle();
-
-        if (diffData) {
-          await supabase
-            .from('users')
-            .update({ current_difficulty_id: diffData.id })
-            .eq('id', session.user.id);
-        }
+        await createUser(activeSession.user.id, parseFloat(weight), tdee, selectedDifficulty);
 
         router.replace('/(tabs)');
       } catch (err) {
