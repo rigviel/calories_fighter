@@ -1,6 +1,6 @@
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'expo-router';
 import { Zap } from 'lucide-react-native';
@@ -12,6 +12,28 @@ export default function OnboardingScreen() {
   const [selectedDifficulty, setSelectedDifficulty] = useState('warrior');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [session, setSession] = useState<any>(null);
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      setSession(session);
+
+      if (!session) {
+        await signUpAnonymous();
+      }
+    };
+    checkAuth();
+  }, []);
+
+  const signUpAnonymous = async () => {
+    try {
+      const { data } = await supabase.auth.signInAnonymously();
+      setSession(data.session);
+    } catch (err) {
+      console.error('Auth error:', err);
+    }
+  };
 
   const difficulties = [
     { id: 'beginner', label: 'Beginner Fighter', desc: '~10% deficit', emoji: '🟢' },
@@ -37,16 +59,24 @@ export default function OnboardingScreen() {
       setError('');
       try {
         const { data: { session } } = await supabase.auth.getSession();
-        if (!session?.user?.id) throw new Error('Not authenticated');
+        if (!session?.user?.id) {
+          setError('Authentication failed. Please try again.');
+          setLoading(false);
+          return;
+        }
 
         const tdee = calculateTDEE(parseFloat(weight));
 
-        await supabase.from('users').insert({
+        const { error: insertErr } = await supabase.from('users').insert({
           id: session.user.id,
           weight_kg: parseFloat(weight),
           tdee,
           current_difficulty_id: null,
         });
+
+        if (insertErr && insertErr.code !== '23505') {
+          throw insertErr;
+        }
 
         const diffLookup: Record<string, string> = {
           beginner: 'beginner',
@@ -70,6 +100,7 @@ export default function OnboardingScreen() {
 
         router.replace('/(tabs)');
       } catch (err) {
+        console.error('Onboarding error:', err);
         setError(String(err));
       } finally {
         setLoading(false);
@@ -81,7 +112,7 @@ export default function OnboardingScreen() {
     <LinearGradient colors={['#0F172A', '#111827']} style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
-          <Zap color="#FBBF24" size={48} />
+          <Text style={styles.monsterEmoji}>👹</Text>
           <Text style={styles.title}>Calories Fighter</Text>
           <Text style={styles.subtitle}>Turn eating control into an epic battle</Text>
         </View>
@@ -159,11 +190,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 40,
   },
+  monsterEmoji: {
+    fontSize: 80,
+    marginBottom: 16,
+  },
   title: {
     fontSize: 32,
     fontWeight: '700',
     color: '#FFFFFF',
-    marginTop: 16,
+    marginTop: 8,
   },
   subtitle: {
     fontSize: 16,
