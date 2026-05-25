@@ -65,12 +65,9 @@ Legacy folder `/backup/doc-YYYY-MM-DD/` may exist from older sessions; prefer th
 ### Battle tab
 - Requires a **complete** saved profile (`isProfileComplete`); otherwise shows a banner and disables logging.
 - Food form: **food name** + **manual kcal** (number pad); Add disabled until both are valid.
-- **Monster display:** `BattleMonsterSprite` — SVG creature (not the static PNG); patrols left↔right, flips facing, color/face changes with `overheatState`.
-- **Feed animation (visual only):** on successful log, `feedPulse` increments → `FoodThrowEffect` throws **🍖** (~820ms arc) → sprite **munch** (open mouth + chomp). Does **not** change stored food name or calories.
 - Weekly HP and daily overheat target **recalibrate** when the user saves Character Stat (`recalibrateCurrentWeeklyMonster`).
 - Week rollover (`processWeekRollover`) writes `weeklyResults` (victory if HP remains after Sunday).
 - Delete today’s log on Battle **restores** weekly HP; delete on Log tab does not.
-- Commented fallbacks in `index.tsx`: PNG (`assets/monster/happy.png`) and emoji `Text` — for rollback only.
 
 ### Onboarding
 - Collects **weight** + **calorie class** only; full profile is completed on Character Stat.
@@ -83,14 +80,10 @@ Legacy folder `/backup/doc-YYYY-MM-DD/` may exist from older sessions; prefer th
 | `lib/overheat.ts` | Daily overheat state machine |
 | `lib/dates.ts` | Local `YYYY-MM-DD` week boundaries (no UTC shift) |
 | `lib/battle-stats.ts` | Career stats (week win streak, wins, COOL streaks) |
-| `components/BattleMonsterSprite.tsx` | Battle monster SVG + walk/munch animations |
-| `components/FoodThrowEffect.tsx` | 🍖 throw animation (`FOOD_THROW_DURATION_MS`) |
-| `components/OverheatBar.tsx` | Daily usage bar on Battle |
 
 ---
 
 ## Current focus (open work)
 - Food memory autocomplete on Battle (stored on log, not shown in UI)
 - Optional `weekly-result` modal screen (route declared, file missing)
-- Emotion-based animation tuning (e.g. weaker breathing at low HP) — visual only
 - Trim or extend Battle Stats footer line (COOL / last week) per user feedback

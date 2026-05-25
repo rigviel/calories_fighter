@@ -93,8 +93,6 @@ current_hp = max(0, current_hp − calories)
 
 Log + HP update happen in one atomic write (`logFoodAndUpdateMonster`). Food name and kcal are also stored in `foodMemory` for future autocomplete (UI not wired).
 
-**Visual feedback on Add (does not change stored data):** a **🍖** emoji flies toward the monster (~820ms), then the sprite **munches**. The thrown icon is always 🍖 regardless of what the user typed in the food field.
-
 ### Delete log
 
 | Where | HP |
@@ -110,7 +108,7 @@ Log + HP update happen in one atomic write (`logFoodAndUpdateMonster`). Food nam
 | 30–70% | Amber `#FBBF24` |
 | < 30% | Red `#EF4444` |
 
-Weekly HP does **not** control the Battle monster’s look; **overheat** does (sprite color/face + emotion label below).
+Weekly HP does **not** control the Battle emoji; overheat does.
 
 ---
 
@@ -197,16 +195,11 @@ Career metrics — see §4.
 
 ## 7. Monster expression (Battle)
 
-Battle shows an **animated SVG sprite** (`BattleMonsterSprite`), not a static image. Emotion label text still comes from `pickEmotionText` (e.g. Calm, Warning, STOP).
-
-| Overheat | Sprite look | Card shake | Emotion label examples | Stats “sheet” state |
-|----------|-------------|------------|------------------------|---------------------|
-| COOL | Green, happy mouth | None | Calm, Good, Stable | Stable |
-| WARM | Yellow, neutral mouth | None | OK, Careful | Stable |
-| HOT | Orange, worried eyes, sweat | Slight | Warning, Focus | Tired |
-| OVERHEAT | Red, dizzy eyes, stress marks | Strong | STOP, Danger | Overheated |
-
-**On food log:** 🍖 throw + munch animation (see §2 logging food). Commented PNG/emoji fallbacks exist in code for rollback only.
+| Overheat | Emoji | Shake | Stats “sheet” state |
+|----------|-------|-------|---------------------|
+| COOL / WARM | 😊 / 😐 | None | Stable |
+| HOT | 😰 | Slight | Tired |
+| OVERHEAT | 🤯 | Strong | Overheated |
 
 ---
 

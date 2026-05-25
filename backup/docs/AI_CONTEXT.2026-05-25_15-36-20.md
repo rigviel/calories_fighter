@@ -53,10 +53,10 @@ Legacy folder `/backup/doc-YYYY-MM-DD/` may exist from older sessions; prefer th
 - Screen title: **Character Stat** (not “Hunter Sheet”).
 - **No default profile values** are stored; the user must enter all required fields.
 - **Save** is gray/disabled until the form is valid **and** has unsaved changes; label is **Save** (not “Save Hunter Sheet”).
-- After save, read-only blocks appear below the button:
-  1. **Current Stats** — table: saved profile + metabolism (BMR, TDEE, weekly HP, daily target)
-  2. **Monster Stat** — table: live week monster (name, state, weekly HP, daily target, today’s intake)
-  3. **Battle Stats** — **card UI**: Week Win Streak, Total Wins, Battles (+ optional COOL/last-week footer when weeks finished)
+- After save, read-only tables appear below the button:
+  1. **Current Stats** — saved profile + metabolism (BMR, TDEE, weekly HP, daily target)
+  2. **Monster Stat** — live week monster (name, state, weekly HP, daily target, today’s intake)
+  3. **Battle Stat** — career record (monsters defeated, COOL streaks, last week outcome)
 
 ### Metabolism / classes
 - **TDEE** uses a fixed moderate multiplier (`×1.55`) for every class.
@@ -64,13 +64,8 @@ Legacy folder `/backup/doc-YYYY-MM-DD/` may exist from older sessions; prefer th
 
 ### Battle tab
 - Requires a **complete** saved profile (`isProfileComplete`); otherwise shows a banner and disables logging.
-- Food form: **food name** + **manual kcal** (number pad); Add disabled until both are valid.
-- **Monster display:** `BattleMonsterSprite` — SVG creature (not the static PNG); patrols left↔right, flips facing, color/face changes with `overheatState`.
-- **Feed animation (visual only):** on successful log, `feedPulse` increments → `FoodThrowEffect` throws **🍖** (~820ms arc) → sprite **munch** (open mouth + chomp). Does **not** change stored food name or calories.
 - Weekly HP and daily overheat target **recalibrate** when the user saves Character Stat (`recalibrateCurrentWeeklyMonster`).
 - Week rollover (`processWeekRollover`) writes `weeklyResults` (victory if HP remains after Sunday).
-- Delete today’s log on Battle **restores** weekly HP; delete on Log tab does not.
-- Commented fallbacks in `index.tsx`: PNG (`assets/monster/happy.png`) and emoji `Text` — for rollback only.
 
 ### Onboarding
 - Collects **weight** + **calorie class** only; full profile is completed on Character Stat.
@@ -82,15 +77,12 @@ Legacy folder `/backup/doc-YYYY-MM-DD/` may exist from older sessions; prefer th
 | `lib/metabolism.ts` | BMR/TDEE/weekly HP, classes, profile validation |
 | `lib/overheat.ts` | Daily overheat state machine |
 | `lib/dates.ts` | Local `YYYY-MM-DD` week boundaries (no UTC shift) |
-| `lib/battle-stats.ts` | Career stats (week win streak, wins, COOL streaks) |
-| `components/BattleMonsterSprite.tsx` | Battle monster SVG + walk/munch animations |
-| `components/FoodThrowEffect.tsx` | 🍖 throw animation (`FOOD_THROW_DURATION_MS`) |
-| `components/OverheatBar.tsx` | Daily usage bar on Battle |
+| `lib/battle-stats.ts` | Career stats (wins, COOL streaks) |
 
 ---
 
 ## Current focus (open work)
-- Food memory autocomplete on Battle (stored on log, not shown in UI)
+- Improve food logging UX on Battle
+- Food memory autocomplete (stored but unused in UI)
 - Optional `weekly-result` modal screen (route declared, file missing)
-- Emotion-based animation tuning (e.g. weaker breathing at low HP) — visual only
-- Trim or extend Battle Stats footer line (COOL / last week) per user feedback
+- Trim or extend Battle Stat rows per user feedback

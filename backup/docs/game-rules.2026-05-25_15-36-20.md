@@ -83,17 +83,11 @@ When the user taps **Save** on Character Stat:
 - One row per user per calendar week (Monday `week_start` – Sunday `week_end`).
 - Created on first Battle visit of the week if missing.
 
-### Logging food (Battle tab)
-
-User enters **food name** and **calories (kcal)** manually. Add is disabled until both are valid.
+### Logging food
 
 ```
 current_hp = max(0, current_hp − calories)
 ```
-
-Log + HP update happen in one atomic write (`logFoodAndUpdateMonster`). Food name and kcal are also stored in `foodMemory` for future autocomplete (UI not wired).
-
-**Visual feedback on Add (does not change stored data):** a **🍖** emoji flies toward the monster (~820ms), then the sprite **munches**. The thrown icon is always 🍖 regardless of what the user typed in the food field.
 
 ### Delete log
 
@@ -110,7 +104,7 @@ Log + HP update happen in one atomic write (`logFoodAndUpdateMonster`). Food nam
 | 30–70% | Amber `#FBBF24` |
 | < 30% | Red `#EF4444` |
 
-Weekly HP does **not** control the Battle monster’s look; **overheat** does (sprite color/face + emotion label below).
+Weekly HP does **not** control the Battle emoji; overheat does.
 
 ---
 
@@ -143,7 +137,7 @@ End-of-day band is stored in `dailyOverheatHistory` (and today’s pointer in `d
 
 ---
 
-## 4. Week outcome & Battle Stats (career)
+## 4. Week outcome & Battle Stat (career)
 
 ### When a week is finalized
 
@@ -154,36 +148,32 @@ On app focus (Battle or Stats), `processWeekRollover` runs for weeks whose `week
 | **victory** (`monster_defeated`) | `current_hp > 0` at week end — user stayed under weekly budget |
 | **defeat** | `current_hp ≤ 0` — weekly pool exhausted |
 
-### Week win streak
+### Battle Stat table (Stats tab, below Monster Stat)
 
-Consecutive **victory** outcomes when finished weeks are sorted by `week_start` descending (most recent first). Any defeat breaks the streak.
-
-### Battle Stats UI (Stats tab, below Monster Stat)
-
-Card-based layout (not a table):
-
-| Card / element | Metric | Meaning |
-|----------------|--------|---------|
-| **Week Win Streak** (full-width) | `weekWinStreak` | Consecutive weekly victories |
-| **Total Wins** (half) | `monstersDefeated` | All-time weekly wins |
-| **Battles** (half) | `weeksPlayed` | Finished weeks played |
-| Empty state | — | Shown when `weeksPlayed === 0` |
-| Footer line (optional) | COOL + last week | `currentCoolStreak`, `bestCoolStreak`, `coolDaysThisWeek` / `daysTrackedThisWeek`, `lastWeekOutcome` |
+| Metric | Meaning |
+|--------|---------|
+| **Monsters defeated** | Count of `weeklyResults` with `outcome === 'victory'` |
+| **Weeks played** | Finished weeks; win rate % shown |
+| **COOL streak** | Consecutive calendar days ending today with COOL band (&lt; 80% of daily target) |
+| **Best COOL streak** | Longest consecutive COOL run in history |
+| **COOL days this week** | COOL days vs days with tracked intake this week |
+| **Overheat days this week** | Days that reached OVERHEAT band |
+| **Last week** | Victory or defeat for the most recent completed week |
 
 COOL days are derived from `dailyOverheatHistory` when present, else computed from that day’s logs and the week’s `initial_hp`.
 
 ---
 
-## 5. Stats tab blocks (after Save)
+## 5. Stats tab tables (after Save)
 
-### Current Stats (table)
+### Current Stats
 Saved profile + metabolism: BMR, TDEE, weekly monster HP, daily target.
 
-### Monster Stat (table)
+### Monster Stat (live)
 Monster name, sheet state (Stable / Tired / Overheated from today’s overheat), weekly HP current/max, daily target, today’s intake and % of target.
 
-### Battle Stats (cards)
-Career metrics — see §4.
+### Battle Stat
+Career metrics (see §4).
 
 ---
 
@@ -197,16 +187,11 @@ Career metrics — see §4.
 
 ## 7. Monster expression (Battle)
 
-Battle shows an **animated SVG sprite** (`BattleMonsterSprite`), not a static image. Emotion label text still comes from `pickEmotionText` (e.g. Calm, Warning, STOP).
-
-| Overheat | Sprite look | Card shake | Emotion label examples | Stats “sheet” state |
-|----------|-------------|------------|------------------------|---------------------|
-| COOL | Green, happy mouth | None | Calm, Good, Stable | Stable |
-| WARM | Yellow, neutral mouth | None | OK, Careful | Stable |
-| HOT | Orange, worried eyes, sweat | Slight | Warning, Focus | Tired |
-| OVERHEAT | Red, dizzy eyes, stress marks | Strong | STOP, Danger | Overheated |
-
-**On food log:** 🍖 throw + munch animation (see §2 logging food). Commented PNG/emoji fallbacks exist in code for rollback only.
+| Overheat | Emoji | Shake | Stats “sheet” state |
+|----------|-------|-------|---------------------|
+| COOL / WARM | 😊 / 😐 | None | Stable |
+| HOT | 😰 | Slight | Tired |
+| OVERHEAT | 🤯 | Strong | Overheated |
 
 ---
 
@@ -220,7 +205,6 @@ Battle shows an **animated SVG sprite** (`BattleMonsterSprite`), not a static im
 | Daily target | `weeklyHP / 7` |
 | HP after eat | `current_hp − calories` |
 | Victory | Weekly HP &gt; 0 after Sunday (recorded on rollover) |
-| Week win streak | Consecutive `victory` in `weeklyResults` (newest weeks first) |
 | COOL day | Daily usage &lt; 80% of target |
 
 ---

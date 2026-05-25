@@ -31,6 +31,8 @@ import {
   type OverheatState,
 } from '@/lib/overheat';
 import { OverheatBar } from '@/components/OverheatBar';
+import { BattleMonsterSprite } from '@/components/BattleMonsterSprite';
+import { FoodThrowEffect } from '@/components/FoodThrowEffect';
 import { computeWeeklyMonsterHp, getCalorieClass } from '@/lib/metabolism';
 import { getTodayDate, getWeekDates } from '@/lib/dates';
 import { Plus, Trash2 } from 'lucide-react-native';
@@ -59,6 +61,7 @@ export default function BattleScreen() {
   const [emotionText, setEmotionText] = useState('Calm');
   const [error, setError] = useState('');
   const [profileIncomplete, setProfileIncomplete] = useState(false);
+  const [feedPulse, setFeedPulse] = useState(0);
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const shakeAnim = useRef(new Animated.Value(0)).current;
   const trackedDateRef = useRef(getTodayDate());
@@ -169,6 +172,7 @@ export default function BattleScreen() {
       setTodayLogs((prev) => [log, ...prev]);
       setFoodInput('');
       setCaloriesInput('');
+      setFeedPulse((n) => n + 1);
 
       Animated.sequence([
         Animated.spring(scaleAnim, { toValue: 1.1, useNativeDriver: true }),
@@ -302,7 +306,19 @@ export default function BattleScreen() {
             }
             style={styles.monsterGradient}
           >
+            <View style={styles.monsterArena}>
+              <FoodThrowEffect pulse={feedPulse} />
+              <BattleMonsterSprite state={overheatState} feedPulse={feedPulse} />
+            </View>
+            {/* PNG fallback (DO NOT DELETE)
+            <Image
+              source={require('../../assets/monster/happy.png')}
+              style={{ width: 120, height: 120 }}
+            />
+            */}
+            {/* Emoji fallback (DO NOT DELETE)
             <Text style={styles.monsterEmoji}>{monsterExpression.emoji}</Text>
+            */}
             <Text
               style={[
                 styles.emotionText,
@@ -429,11 +445,21 @@ const styles = StyleSheet.create({
   monsterCard: {
     marginBottom: 24,
     borderRadius: 16,
-    overflow: 'hidden',
+    overflow: 'visible',
   },
   monsterGradient: {
     paddingVertical: 32,
     alignItems: 'center',
+    overflow: 'visible',
+    borderRadius: 16,
+  },
+  monsterArena: {
+    position: 'relative',
+    width: '100%',
+    minHeight: 148,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'visible',
   },
   monsterEmoji: {
     fontSize: 64,
