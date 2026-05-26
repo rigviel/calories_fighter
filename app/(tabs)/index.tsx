@@ -33,6 +33,7 @@ import {
 import { OverheatBar } from '@/components/OverheatBar';
 import { BattleMonsterSprite } from '@/components/BattleMonsterSprite';
 import { FoodThrowEffect } from '@/components/FoodThrowEffect';
+import { MonsterHpBar } from '@/components/MonsterHpBar';
 import { computeWeeklyMonsterHp, getCalorieClass } from '@/lib/metabolism';
 import { getTodayDate, getWeekDates } from '@/lib/dates';
 import { Plus, Trash2 } from 'lucide-react-native';
@@ -219,7 +220,6 @@ export default function BattleScreen() {
     () => getMonsterExpression(overheatState),
     [overheatState]
   );
-  const hpPercent = monster ? (monster.current_hp / monster.initial_hp) * 100 : 100;
   const shakeLevel = shouldShake(overheatState);
 
   useEffect(() => {
@@ -338,20 +338,10 @@ export default function BattleScreen() {
             />
 
             <View style={styles.hpContainer}>
-              <View style={styles.hpBarBg}>
-                <View
-                  style={[
-                    styles.hpBar,
-                    {
-                      width: `${hpPercent}%`,
-                      backgroundColor: hpPercent > 70 ? '#22C55E' : hpPercent > 30 ? '#FBBF24' : '#EF4444',
-                    },
-                  ]}
-                />
-              </View>
-              <Text style={styles.hpText}>
-                {Math.round(monster?.current_hp || 0)} / {Math.round(monster?.initial_hp || 0)} HP
-              </Text>
+              <MonsterHpBar
+                currentHp={monster?.current_hp ?? 0}
+                initialHp={monster?.initial_hp ?? 0}
+              />
             </View>
           </LinearGradient>
         </Animated.View>
@@ -477,23 +467,8 @@ const styles = StyleSheet.create({
   emotionOverheat: { color: '#EF4444' },
   hpContainer: {
     width: '100%',
-    paddingHorizontal: 24,
-  },
-  hpBarBg: {
-    height: 12,
-    backgroundColor: '#374151',
-    borderRadius: 6,
-    overflow: 'hidden',
-    marginBottom: 12,
-  },
-  hpBar: {
-    height: '100%',
-    borderRadius: 6,
-  },
-  hpText: {
-    fontSize: 14,
-    color: '#D1D5DB',
-    textAlign: 'center',
+    paddingHorizontal: 16,
+    marginTop: 4,
   },
   foodForm: {
     marginBottom: 24,

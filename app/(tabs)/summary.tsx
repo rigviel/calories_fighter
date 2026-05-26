@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
+import { MonsterHpBar } from '@/components/MonsterHpBar';
 import { User, Shield, Zap, Trophy, Target, TrendingUp } from 'lucide-react-native';
 import {
   ensureAnonymousSession,
@@ -565,7 +566,6 @@ function MonsterStatsTable({
   const usageDisplay =
     dailyTarget > 0 ? Math.round(getUsagePercentDisplay(todayIntake / dailyTarget)) : 0;
   const hpPercent = monster ? (monster.current_hp / monster.initial_hp) * 100 : 0;
-  const hpBarColor = hpPercent > 70 ? '#22C55E' : hpPercent > 30 ? '#FBBF24' : '#EF4444';
 
   const rows: { label: string; value: string; sub?: string; valueColor?: string }[] = [
     { label: 'Monster', value: monsterDisplayName },
@@ -605,17 +605,12 @@ function MonsterStatsTable({
         ))}
         {monster ? (
           <View style={styles.battleHpBarWrap}>
-            <View style={styles.miniBar}>
-              <View
-                style={[
-                  styles.miniBarFill,
-                  {
-                    width: `${Math.min(100, hpPercent)}%`,
-                    backgroundColor: hpBarColor,
-                  },
-                ]}
-              />
-            </View>
+            <MonsterHpBar
+              currentHp={monster.current_hp}
+              initialHp={monster.initial_hp}
+              variant="compact"
+              showLabel={false}
+            />
           </View>
         ) : null}
       </View>
@@ -865,13 +860,6 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed',
   },
   savedTablePlaceholderText: { color: '#6B7280', fontSize: 13, textAlign: 'center' },
-  miniBar: {
-    height: 4,
-    backgroundColor: '#374151',
-    borderRadius: 2,
-    overflow: 'hidden',
-  },
-  miniBarFill: { height: '100%', borderRadius: 2 },
   saveButton: {
     marginHorizontal: 16,
     marginTop: 24,
