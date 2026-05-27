@@ -22,7 +22,7 @@
 2. **Character Stat** — Enter full profile (name, sex, age, weight, height, class); **Save** unlocks metabolism and battle budgets.
 3. **Weekly battle** — Boss starts each week at **8 HP**; food logs are tracked for overheat, and HP can be tuned/debugged separately.
 4. **Daily overheat** — Same logs feed daily usage bar and monster sprite mood (COOL → OVERHEAT).
-5. **Week end** — If weekly HP remains after Sunday, count as **monster defeated**; results stored in `weeklyResults`.
+5. **Week end** — If boss HP remains after Sunday, count as **monster defeated**; results stored in `weeklyResults`.
 6. **History** — Review logs; delete from Log tab does not change boss HP.
 
 ---
@@ -147,6 +147,7 @@ No `.env` or Supabase keys required for the local-only build.
 
 - Data is **device-local** only (anonymous session ID).
 - **Food calories** are manual entry (no live AI estimate).
+- Boss HP is currently fixed at `8` (temporary balancing phase).
 - **Food memory** is saved on log but not used for autocomplete on Battle.
 - **Feed animation** always shows 🍖, not the user’s food name or a custom icon per item.
 - Re-onboarding / multi-profile not supported.

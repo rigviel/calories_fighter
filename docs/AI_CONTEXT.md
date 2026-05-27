@@ -54,8 +54,8 @@ Legacy folder `/backup/doc-YYYY-MM-DD/` may exist from older sessions; prefer th
 - **No default profile values** are stored; the user must enter all required fields.
 - **Save** is gray/disabled until the form is valid **and** has unsaved changes; label is **Save** (not “Save Hunter Sheet”).
 - After save, read-only blocks appear below the button:
-  1. **Current Stats** — table: saved profile + metabolism (BMR, TDEE, weekly HP, daily target)
-  2. **Monster Stat** — table: live week monster (name, state, weekly HP, daily target, today’s intake)
+  1. **Current Stats** — table: saved profile + metabolism (BMR, TDEE, weekly calorie budget, fixed boss HP, daily target)
+  2. **Monster Stat** — table: live week monster (name, state, boss HP, daily target, today’s intake)
   3. **Battle Stats** — **card UI**: Week Win Streak, Total Wins, Battles (+ optional COOL/last-week footer when weeks finished)
 
 ### Metabolism / classes
