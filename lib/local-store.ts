@@ -3,7 +3,6 @@ import { buildBattleCareerStats, type BattleCareerStats } from '@/lib/battle-sta
 import { getTodayDate, getWeekDates, isDateInWeek } from '@/lib/dates';
 import {
   computeTdeeFromProfile,
-  computeWeeklyMonsterHp,
   generateMonsterName,
   getCalorieClass,
   isProfileComplete,
@@ -14,6 +13,7 @@ import {
 } from '@/lib/metabolism';
 
 const STORAGE_KEY = '@calories/local-data';
+export const WEEKLY_BOSS_HP = 8;
 
 export interface User {
   id: string;
@@ -343,7 +343,7 @@ export async function updateUserProfile(userId: string, updates: UpdateUserProfi
   return user;
 }
 
-/** Recompute this week's max HP from profile; keeps calories already logged this week. */
+/** Keep the weekly boss HP fixed and normalize legacy rows. */
 export async function recalibrateCurrentWeeklyMonster(userId: string): Promise<WeeklyMonster | null> {
   const store = await loadStore();
   const user = store.users[userId];
@@ -371,16 +371,13 @@ export async function recalibrateCurrentWeeklyMonster(userId: string): Promise<W
     monster = legacy;
   }
 
-  if (!isProfileComplete(user) || user.tdee == null || !user.calorie_class_id) {
+  if (!isProfileComplete(user)) {
     return { ...monster };
   }
 
-  const calorieClass = getCalorieClass(user.calorie_class_id);
-  const newInitialHp = computeWeeklyMonsterHp(user.tdee, calorieClass.deficitPercentage);
-  const consumed = Math.max(0, monster.initial_hp - monster.current_hp);
-
-  monster.initial_hp = newInitialHp;
-  monster.current_hp = Math.max(0, newInitialHp - consumed);
+  // Legacy save repair: older builds used calorie counts for HP.
+  monster.initial_hp = WEEKLY_BOSS_HP;
+  monster.current_hp = Math.min(WEEKLY_BOSS_HP, Math.max(0, Math.round(monster.current_hp)));
   monster.difficulty_id = user.calorie_class_id;
 
   await saveStore(store);
@@ -430,7 +427,7 @@ export async function createWeeklyMonster(
   userId: string,
   weekStart: string,
   weekEnd: string,
-  initialHp: number,
+  _initialHp: number,
   difficultyId: string | null
 ): Promise<WeeklyMonster> {
   const store = await loadStore();
@@ -439,8 +436,8 @@ export async function createWeeklyMonster(
     user_id: userId,
     week_start: weekStart,
     week_end: weekEnd,
-    initial_hp: initialHp,
-    current_hp: initialHp,
+    initial_hp: WEEKLY_BOSS_HP,
+    current_hp: WEEKLY_BOSS_HP,
     difficulty_id: difficultyId,
   };
   store.weeklyMonsters.push(monster);
@@ -452,12 +449,12 @@ export async function updateWeeklyMonsterHp(monsterId: string, currentHp: number
   const store = await loadStore();
   const monster = store.weeklyMonsters.find((m) => m.id === monsterId);
   if (monster) {
-    monster.current_hp = currentHp;
+    monster.current_hp = Math.max(0, Math.min(monster.initial_hp, Math.round(currentHp)));
     await saveStore(store);
   }
 }
 
-/** Atomically append a food log and reduce monster HP in one write. */
+/** Atomically append a food log; boss HP is no longer calorie-driven. */
 export async function logFoodAndUpdateMonster(
   userId: string,
   monsterId: string,
@@ -481,14 +478,13 @@ export async function logFoodAndUpdateMonster(
     created_at: new Date().toISOString(),
   };
 
-  monster.current_hp = Math.max(0, monster.current_hp - calories);
   store.dailyLogs.push(log);
   await saveStore(store);
 
   return { log, monster: { ...monster } };
 }
 
-/** Atomically remove a food log and restore monster HP in one write. */
+/** Atomically remove a food log. HP remains unchanged. */
 export async function deleteDailyLogAndRestoreHp(
   logId: string
 ): Promise<WeeklyMonster | null> {
@@ -499,12 +495,29 @@ export async function deleteDailyLogAndRestoreHp(
   const monster = store.weeklyMonsters.find((m) => m.id === log.monster_id);
   store.dailyLogs = store.dailyLogs.filter((l) => l.id !== logId);
 
-  if (monster) {
-    monster.current_hp = Math.min(monster.initial_hp, monster.current_hp + log.calories);
-  }
-
   await saveStore(store);
   return monster ? { ...monster } : null;
+}
+
+/** Temporary debug helper for battle tuning. */
+export async function reduceWeeklyMonsterHp(monsterId: string, amount = 1): Promise<WeeklyMonster | null> {
+  const store = await loadStore();
+  const monster = store.weeklyMonsters.find((m) => m.id === monsterId);
+  if (!monster) return null;
+  const delta = Math.max(1, Math.round(amount));
+  monster.current_hp = Math.max(0, monster.current_hp - delta);
+  await saveStore(store);
+  return { ...monster };
+}
+
+/** Temporary debug helper for restoring boss HP to full. */
+export async function resetWeeklyMonsterHp(monsterId: string): Promise<WeeklyMonster | null> {
+  const store = await loadStore();
+  const monster = store.weeklyMonsters.find((m) => m.id === monsterId);
+  if (!monster) return null;
+  monster.current_hp = monster.initial_hp;
+  await saveStore(store);
+  return { ...monster };
 }
 
 export async function getDailyLogs(

@@ -1,6 +1,6 @@
 # Calories Fighter — Project Overview
 
-**Calories Fighter** (also *Calories Monster* in AI docs) is a gamified calorie-tracking app built with **Expo** and **React Native**. The weekly monster now uses a fixed boss life pool (**8 HP**) while calorie logs feed a separate **Daily Overheat** system that tracks how close today’s intake is to the daily budget and drives the monster’s mood.
+**Calories Fighter** (also *Calories Monster* in AI docs) is a gamified calorie-tracking app built with **Expo** and **React Native**. Users fight a weekly monster by logging food: calories reduce the monster’s HP. A separate **Daily Overheat** system tracks how close today’s intake is to the daily budget and drives the monster’s mood.
 
 ---
 
@@ -20,10 +20,10 @@
 
 1. **Onboarding** — Weight + calorie class (partial profile only).
 2. **Character Stat** — Enter full profile (name, sex, age, weight, height, class); **Save** unlocks metabolism and battle budgets.
-3. **Weekly battle** — Boss starts each week at **8 HP**; food logs are tracked for overheat, and HP can be tuned/debugged separately.
+3. **Weekly battle** — Log food name + kcal → monster weekly HP drops; **🍖** flies in and the sprite munches (visual feedback).
 4. **Daily overheat** — Same logs feed daily usage bar and monster sprite mood (COOL → OVERHEAT).
 5. **Week end** — If weekly HP remains after Sunday, count as **monster defeated**; results stored in `weeklyResults`.
-6. **History** — Review logs; delete from Log tab does not change boss HP.
+6. **History** — Review logs; delete from Log tab does not restore weekly HP.
 
 ---
 
@@ -32,7 +32,7 @@
 | Route | Tab / stack | Purpose |
 |-------|-------------|---------|
 | `app/onboarding.tsx` | Stack (first launch) | Weight + calorie class |
-| `app/(tabs)/index.tsx` | **Battle** | Animated monster, fixed boss HP, overheat bar, food + kcal logging, 🍖 feed animation |
+| `app/(tabs)/index.tsx` | **Battle** | Animated monster, weekly HP, overheat bar, food + kcal logging, 🍖 feed animation |
 | `app/(tabs)/history.tsx` | **Log** | Food history, delete |
 | `app/(tabs)/summary.tsx` | **Stats** | **Character Stat** form + Current / Monster / Battle Stats |
 | `app/_layout.tsx` | Root | Onboarding vs tabs gate |
@@ -50,8 +50,8 @@
 | **Emotion label** | Text under sprite (Calm → STOP) from `overheatState` |
 | **Food log** | Name + manual kcal; **+** disabled until valid |
 | **Feed FX** | **🍖** (~76px) thrown toward monster (~820ms), then munch animation |
-| **Overheat bar** | Daily usage vs target (calorie-based) |
-| **Weekly HP bar** | Boss remaining life (fixed 8 max, segmented slots) |
+| **Overheat bar** | Daily usage vs target |
+| **Weekly HP bar** | Remaining weekly calorie budget |
 
 Game rules and storage are unchanged by feed animation — the user’s typed food name is what gets saved.
 
@@ -68,8 +68,8 @@ Game rules and storage are unchanged by feed animation — the user’s typed fo
 
 | Block | UI | Contents |
 |--------|-----|-----------|
-| **Current Stats** | Table | Saved profile + BMR, TDEE, weekly calorie budget, fixed boss HP, daily target |
-| **Monster Stat** | Table + mini HP bar | Live monster name, sheet state, boss HP, daily target, today’s intake |
+| **Current Stats** | Table | Saved profile + BMR, TDEE, weekly monster HP, daily target |
+| **Monster Stat** | Table + mini HP bar | Live monster name, sheet state, weekly HP, daily target, today’s intake |
 | **Battle Stats** | **Cards** | Week Win Streak (hero card), Total Wins, Battles; empty state until first week ends |
 
 **Battle Stats card layout:**
@@ -97,7 +97,7 @@ calories/
 │   ├── _layout.tsx
 │   ├── onboarding.tsx
 │   └── (tabs)/
-│       ├── index.tsx       # Battle (+ feedPulse, temporary HP debug buttons)
+│       ├── index.tsx       # Battle (+ feedPulse)
 │       ├── history.tsx     # Log
 │       └── summary.tsx     # Character Stat
 ├── assets/

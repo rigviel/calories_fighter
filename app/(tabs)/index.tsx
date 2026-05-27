@@ -13,10 +13,13 @@ import {
   getWeeklyMonster,
   isProfileComplete,
   recalibrateCurrentWeeklyMonster,
+  reduceWeeklyMonsterHp,
+  resetWeeklyMonsterHp,
   processWeekRollover,
   logFoodAndUpdateMonster,
   setDailyOverheatState,
   upsertFoodMemory,
+  WEEKLY_BOSS_HP,
   type WeeklyMonster,
 } from '@/lib/local-store';
 import {
@@ -63,6 +66,7 @@ export default function BattleScreen() {
   const [error, setError] = useState('');
   const [profileIncomplete, setProfileIncomplete] = useState(false);
   const [feedPulse, setFeedPulse] = useState(0);
+  const [dailyTarget, setDailyTarget] = useState(0);
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const shakeAnim = useRef(new Animated.Value(0)).current;
   const trackedDateRef = useRef(getTodayDate());
@@ -74,13 +78,15 @@ export default function BattleScreen() {
       setProfileIncomplete(true);
       setMonster(null);
       setTodayLogs([]);
+      setDailyTarget(0);
       setError('Complete your Character Stat on the Stats tab before battling.');
       return null;
     }
 
     setProfileIncomplete(false);
     const calorieClass = getCalorieClass(userData.calorie_class_id);
-    const weeklyBudget = computeWeeklyMonsterHp(userData.tdee, calorieClass.deficitPercentage);
+    const weeklyCalorieBudget = computeWeeklyMonsterHp(userData.tdee, calorieClass.deficitPercentage);
+    setDailyTarget(getDailyTarget(weeklyCalorieBudget));
 
     let existingMonster = await getWeeklyMonster(uid, start);
     if (existingMonster) {
@@ -93,7 +99,7 @@ export default function BattleScreen() {
         uid,
         start,
         end,
-        weeklyBudget,
+        WEEKLY_BOSS_HP,
         userData.calorie_class_id
       ));
 
@@ -200,16 +206,31 @@ export default function BattleScreen() {
     }
   };
 
+  const handleDebugHit = async () => {
+    if (!monster) return;
+    try {
+      const updated = await reduceWeeklyMonsterHp(monster.id, 1);
+      if (updated) setMonster(updated);
+    } catch (err) {
+      console.error('Error reducing monster HP:', err);
+    }
+  };
+
+  const handleDebugResetHp = async () => {
+    if (!monster) return;
+    try {
+      const updated = await resetWeeklyMonsterHp(monster.id);
+      if (updated) setMonster(updated);
+    } catch (err) {
+      console.error('Error resetting monster HP:', err);
+    }
+  };
+
   const canLog =
     !profileIncomplete &&
     foodInput.trim().length > 0 &&
     parseCalories(caloriesInput) !== null &&
     !loading;
-
-  const dailyTarget = useMemo(
-    () => (monster ? getDailyTarget(monster.initial_hp) : 0),
-    [monster?.initial_hp]
-  );
 
   const todayIntake = useMemo(() => getTodayIntake(todayLogs), [todayLogs]);
   const usagePercent = useMemo(
@@ -347,6 +368,18 @@ export default function BattleScreen() {
         </Animated.View>
 
         <View style={styles.foodForm}>
+          <View style={styles.debugButtonsRow}>
+            <TouchableOpacity style={styles.debugButton} onPress={handleDebugHit} disabled={!monster}>
+              <Text style={styles.debugButtonText}>Debug Hit -1 HP</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.debugButton}
+              onPress={handleDebugResetHp}
+              disabled={!monster}
+            >
+              <Text style={styles.debugButtonText}>Reset HP Full</Text>
+            </TouchableOpacity>
+          </View>
           <View style={styles.inputContainer}>
             <TextInput
               style={styles.input}
@@ -472,6 +505,25 @@ const styles = StyleSheet.create({
   },
   foodForm: {
     marginBottom: 24,
+  },
+  debugButtonsRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 8,
+    marginBottom: 10,
+  },
+  debugButton: {
+    backgroundColor: '#334155',
+    borderWidth: 1,
+    borderColor: '#64748B',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+  },
+  debugButtonText: {
+    color: '#E2E8F0',
+    fontSize: 12,
+    fontWeight: '700',
   },
   inputContainer: {
     flexDirection: 'row',

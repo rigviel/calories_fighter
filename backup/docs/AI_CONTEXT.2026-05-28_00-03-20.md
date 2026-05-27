@@ -67,12 +67,9 @@ Legacy folder `/backup/doc-YYYY-MM-DD/` may exist from older sessions; prefer th
 - Food form: **food name** + **manual kcal** (number pad); Add disabled until both are valid.
 - **Monster display:** `BattleMonsterSprite` — SVG creature (not the static PNG); patrols left↔right, flips facing, color/face changes with `overheatState`.
 - **Feed animation (visual only):** on successful log, `feedPulse` increments → `FoodThrowEffect` throws **🍖** (~820ms arc) → sprite **munch** (open mouth + chomp). Does **not** change stored food name or calories.
-- **Weekly boss HP is fixed to `8`** (`WEEKLY_BOSS_HP`) and no longer derived from calorie formulas.
-- Battle HP UI uses segmented life slots; slot count follows `initial_hp` (currently 8).
-- Daily overheat target remains calorie-based (`computeWeeklyMonsterHp(...)/7`) and is separate from boss HP.
+- Weekly HP and daily overheat target **recalibrate** when the user saves Character Stat (`recalibrateCurrentWeeklyMonster`).
 - Week rollover (`processWeekRollover`) writes `weeklyResults` (victory if HP remains after Sunday).
-- Food logging does **not** change boss HP; delete on Battle/Log does not change boss HP.
-- Temporary debug controls on Battle: **Debug Hit -1 HP** and **Reset HP Full**.
+- Delete today’s log on Battle **restores** weekly HP; delete on Log tab does not.
 - Commented fallbacks in `index.tsx`: PNG (`assets/monster/happy.png`) and emoji `Text` — for rollback only.
 
 ### Onboarding
@@ -97,4 +94,3 @@ Legacy folder `/backup/doc-YYYY-MM-DD/` may exist from older sessions; prefer th
 - Optional `weekly-result` modal screen (route declared, file missing)
 - Emotion-based animation tuning (e.g. weaker breathing at low HP) — visual only
 - Trim or extend Battle Stats footer line (COOL / last week) per user feedback
-- Remove temporary HP debug buttons after boss HP tuning is finalized

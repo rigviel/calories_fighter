@@ -2,7 +2,7 @@
 
 Rules and formulas as implemented in Calories Fighter. Two parallel systems:
 
-1. **Weekly Boss HP** — Monday–Sunday fixed boss life pool (**8 HP**).
+1. **Weekly HP** — Monday–Sunday “boss” calorie pool.
 2. **Daily Overheat** — Today’s intake vs daily target; drives face and overheat bar.
 
 ---
@@ -61,20 +61,22 @@ Class does **not** change TDEE.
 
 ---
 
-## 2. Weekly Boss HP system
+## 2. Weekly HP system
 
-### Weekly boss life (fixed)
+### Weekly budget (monster max HP)
 
 ```
-WEEKLY_BOSS_HP = 8
+weeklyBudget = round(TDEE × 7 × (1 − deficit%))
 ```
+
+**Example (TDEE 2,018, Casual −10%):** `round(2018 × 7 × 0.9) ≈ 12,713` kcal/week.
 
 ### Profile save vs week
 
 When the user taps **Save** on Character Stat:
 
-- `tdee` and weekly calorie budget are recalculated (for overheat only).
-- The **current week’s** monster HP is normalized to fixed boss life (`initial_hp = 8`, bounded `current_hp`).
+- `tdee` and weekly budget are recalculated.
+- The **current week’s** monster is **recalibrated**: `initial_hp` = new budget; `current_hp` = new budget minus calories already logged this week.
 
 ### Weekly monster
 
@@ -85,7 +87,11 @@ When the user taps **Save** on Character Stat:
 
 User enters **food name** and **calories (kcal)** manually. Add is disabled until both are valid.
 
-`logFoodAndUpdateMonster` stores the log row (and food memory) but does **not** change boss HP.
+```
+current_hp = max(0, current_hp − calories)
+```
+
+Log + HP update happen in one atomic write (`logFoodAndUpdateMonster`). Food name and kcal are also stored in `foodMemory` for future autocomplete (UI not wired).
 
 **Visual feedback on Add (does not change stored data):** a **🍖** emoji flies toward the monster (~820ms), then the sprite **munches**. The thrown icon is always 🍖 regardless of what the user typed in the food field.
 
@@ -93,13 +99,16 @@ User enters **food name** and **calories (kcal)** manually. Add is disabled unti
 
 | Where | HP |
 |--------|-----|
-| **Battle** tab | Row removed; HP unchanged |
+| **Battle** tab | Restores HP: `min(initial_hp, current_hp + calories)` |
 | **Log** tab | Row removed; HP **unchanged** |
 
-### Weekly HP bar
+### Weekly HP bar colors
 
-- Segmented life bar with one slot per HP (`8` slots at full).
-- HP bar color styling is visual/theme-driven and not tied to calorie thresholds.
+| HP left | Color |
+|---------|--------|
+| > 70% | Green `#22C55E` |
+| 30–70% | Amber `#FBBF24` |
+| < 30% | Red `#EF4444` |
 
 Weekly HP does **not** control the Battle monster’s look; **overheat** does (sprite color/face + emotion label below).
 
@@ -110,7 +119,7 @@ Weekly HP does **not** control the Battle monster’s look; **overheat** does (s
 ### Daily target
 
 ```
-dailyTarget = round(computeWeeklyMonsterHp(tdee, deficit%) / 7)
+dailyTarget = monster.initial_hp / 7
 ```
 
 ### Usage
@@ -142,8 +151,8 @@ On app focus (Battle or Stats), `processWeekRollover` runs for weeks whose `week
 
 | Outcome | Condition |
 |---------|-----------|
-| **victory** (`monster_defeated`) | `current_hp > 0` at week end — boss still has life |
-| **defeat** | `current_hp ≤ 0` — boss life exhausted |
+| **victory** (`monster_defeated`) | `current_hp > 0` at week end — user stayed under weekly budget |
+| **defeat** | `current_hp ≤ 0` — weekly pool exhausted |
 
 ### Week win streak
 
@@ -171,7 +180,7 @@ COOL days are derived from `dailyOverheatHistory` when present, else computed fr
 Saved profile + metabolism: BMR, TDEE, weekly monster HP, daily target.
 
 ### Monster Stat (table)
-Monster name, sheet state (Stable / Tired / Overheated from today’s overheat), weekly boss HP current/max, daily target, today’s intake and % of target.
+Monster name, sheet state (Stable / Tired / Overheated from today’s overheat), weekly HP current/max, daily target, today’s intake and % of target.
 
 ### Battle Stats (cards)
 Career metrics — see §4.
@@ -207,11 +216,10 @@ Battle shows an **animated SVG sprite** (`BattleMonsterSprite`), not a static im
 |---------|---------|
 | BMR | Mifflin–St Jeor |
 | TDEE | `round(BMR × 1.55)` |
-| Weekly calorie budget | `round(TDEE × 7 × (1 − deficit%))` |
-| Weekly boss HP | `8` (fixed) |
-| Daily target | `round(weeklyCalorieBudget / 7)` |
-| HP changes | via debug controls only (temporary) |
-| Victory | Boss HP &gt; 0 after Sunday (recorded on rollover) |
+| Weekly HP | `round(TDEE × 7 × (1 − deficit%))` |
+| Daily target | `weeklyHP / 7` |
+| HP after eat | `current_hp − calories` |
+| Victory | Weekly HP &gt; 0 after Sunday (recorded on rollover) |
 | Week win streak | Consecutive `victory` in `weeklyResults` (newest weeks first) |
 | COOL day | Daily usage &lt; 80% of target |
 
@@ -219,7 +227,7 @@ Battle shows an **animated SVG sprite** (`BattleMonsterSprite`), not a static im
 
 ## 9. Design intent
 
-- **Weekly boss HP** = battle life layer (currently fixed).
+- **Weekly HP** = weekly discipline (boss fight).
 - **Daily overheat** = same-day feedback.
 - **Separate systems** — COOL today ≠ high weekly HP remaining.
 - **Higher calorie class** = deeper deficit, not more calories.

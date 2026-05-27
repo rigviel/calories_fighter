@@ -16,8 +16,6 @@ const TEAL_MID = '#2EE8D6';
 const TEAL_BOTTOM = '#00B4A0';
 
 const SEGMENT_GAP = 3;
-const DEFAULT_SEGMENTS = 10;
-const COMPACT_SEGMENTS = 8;
 
 interface MonsterHpBarProps {
   currentHp: number;
@@ -63,7 +61,7 @@ function HpBarHeart3D({ compact, height }: { compact: boolean; height: number })
         </RadialGradient>
       </Defs>
 
-      <G transform="translate(27 22) rotate(-10) translate(-27 -20)">
+      <G transform="translate(27 22) rotate(0) translate(-27 -20)">
         {/* Extruded depth (bottom-right) */}
         <Path
           d="M27 36 C27 36 9 27 9 17.5 C9 12.2 14.2 8 19.5 8 C23.2 8 25.8 10.2 27 13.5 C28.2 10.2 30.8 8 34.5 8 C39.8 8 45 12.2 45 17.5 C45 27 27 36 27 36 Z"
@@ -99,7 +97,7 @@ export function MonsterHpBar({
   showLabel = true,
 }: MonsterHpBarProps) {
   const compact = variant === 'compact';
-  const segmentCount = compact ? COMPACT_SEGMENTS : DEFAULT_SEGMENTS;
+  const segmentCount = Math.max(1, Math.round(initialHp));
   const filled = filledSegmentCount(currentHp, initialHp, segmentCount);
   const skewDeg = compact ? '-9deg' : '-11deg';
   const trackHeight = compact ? 24 : 32;

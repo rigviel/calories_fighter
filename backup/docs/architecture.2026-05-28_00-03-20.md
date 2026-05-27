@@ -54,7 +54,7 @@ How the Calories Fighter app is structured: navigation, data flow, and key modul
 
 | File | Tab | Role |
 |------|-----|------|
-| `index.tsx` | Battle | Food + kcal log, fixed boss HP, overheat |
+| `index.tsx` | Battle | Food + kcal log, weekly HP, overheat |
 | `history.tsx` | Log | History |
 | `summary.tsx` | Stats | Character Stat |
 
@@ -108,13 +108,12 @@ interface StoreData {
 |----------|----------|
 | `createUser` | Onboarding: `weight_kg` + `calorie_class_id` only; other fields `null` |
 | `updateUserProfile` | Full required profile; recalculates `tdee`; calls `recalibrateCurrentWeeklyMonster` |
-| `recalibrateCurrentWeeklyMonster` | Normalizes current week to fixed boss life (`WEEKLY_BOSS_HP = 8`) |
+| `recalibrateCurrentWeeklyMonster` | Updates current week `initial_hp` / `current_hp` from profile; preserves calories already logged |
 | `processWeekRollover` | For ended weeks without a result row → append `weeklyResults` (victory if `current_hp > 0`) |
 | `getBattleCareerStats` | Aggregates career metrics via `lib/battle-stats.ts` |
-| `createWeeklyMonster` | New week row; `initial_hp`/`current_hp` = fixed 8 HP |
-| `logFoodAndUpdateMonster` | Atomic food log append; HP unchanged |
-| `deleteDailyLogAndRestoreHp` | Battle delete removes row; HP unchanged (name kept for compatibility) |
-| `reduceWeeklyMonsterHp` / `resetWeeklyMonsterHp` | Temporary debug helpers (`-1 HP`, reset full HP) |
+| `createWeeklyMonster` | New week row; `initial_hp` = weekly budget |
+| `logFoodAndUpdateMonster` | Atomic log + HP decrease |
+| `deleteDailyLogAndRestoreHp` | Battle delete restores HP (capped) |
 | `deleteDailyLog` | Log tab delete — row only, HP unchanged |
 | `setDailyOverheatState` | Updates `dailyOverheat` + `dailyOverheatHistory[date]` |
 | `upsertFoodMemory` | Called after each Battle log (autocomplete not wired) |
@@ -173,14 +172,13 @@ Pure aggregation from `weeklyResults`, `dailyOverheatHistory`, and `dailyLogs`. 
 
 1. `processWeekRollover` on focus.
 2. If `!isProfileComplete(user)` → banner, no monster budget, logging disabled.
-3. Load/recalibrate weekly monster (`initial_hp = 8`); `dailyTarget` is calorie-based from metabolism (`computeWeeklyMonsterHp(...)/7`), not boss HP.
+3. Load/recalibrate weekly monster; `dailyTarget` = `monster.initial_hp / 7`.
 4. **Monster arena:** `FoodThrowEffect` + `BattleMonsterSprite` inside `monsterArena` (overflow visible for throw arc).
 5. Food form: name + **manual kcal** → `logFoodAndUpdateMonster` + `upsertFoodMemory`.
 6. On successful log: `setFeedPulse(n => n + 1)` — **visual only** (see below).
 7. Overheat recompute on log; band cross persists to history.
-8. Today’s log delete uses `deleteDailyLogAndRestoreHp` (HP unchanged).
-9. Temporary debug buttons adjust boss HP directly (`Debug Hit -1 HP`, `Reset HP Full`).
-10. Card-level `Animated` scale on log; shake on HOT/OVERHEAT applies to whole monster card.
+8. Today’s log delete uses `deleteDailyLogAndRestoreHp`.
+9. Card-level `Animated` scale on log; shake on HOT/OVERHEAT applies to whole monster card.
 
 #### Feed animation (visual layer — no storage impact)
 
@@ -226,14 +224,14 @@ User taps Save (Character Stat)
     ▼
 updateUserProfile (all required fields)
     ├─ users.* + tdee
-    ├─ recalibrateCurrentWeeklyMonster (set/repair fixed 8 HP)
+    ├─ recalibrateCurrentWeeklyMonster (initial_hp, current_hp)
     └─ buildSavedSnapshot → Current Stats table
     │
     ▼
 User opens Battle tab
     ├─ processWeekRollover
     ├─ recalibrateCurrentWeeklyMonster (again on load)
-    └─ dailyTarget = computeWeeklyMonsterHp(...)/7
+    └─ dailyTarget = initial_hp / 7
 ```
 
 ---
@@ -246,6 +244,7 @@ User taps + (food name + kcal valid)
     ▼
 logFoodAndUpdateMonster
     ├─ dailyLogs.push
+    ├─ weeklyMonsters.current_hp -= calories
     ├─ upsertFoodMemory (food name + kcal)
     └─ overheat recompute → maybe setDailyOverheatState (+ history)
     │

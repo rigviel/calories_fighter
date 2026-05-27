@@ -24,6 +24,7 @@ import {
   resolveMonsterDisplayName,
   processWeekRollover,
   getBattleCareerStats,
+  WEEKLY_BOSS_HP,
   type BattleCareerStats,
   type User as StoredUser,
 } from '@/lib/local-store';
@@ -72,7 +73,8 @@ type SavedStatSnapshot = {
   calorieClassId: CalorieClassId;
   bmr: number;
   tdee: number;
-  weeklyHp: number;
+  weeklyCalorieBudget: number;
+  weeklyBossHp: number;
 };
 
 function buildSavedSnapshot(profile: StoredUser): SavedStatSnapshot | null {
@@ -86,7 +88,7 @@ function buildSavedSnapshot(profile: StoredUser): SavedStatSnapshot | null {
     profile.age!,
     profile.sex!
   );
-  const weeklyHp = computeWeeklyMonsterHp(tdee, calorieClass.deficitPercentage);
+  const weeklyCalorieBudget = computeWeeklyMonsterHp(tdee, calorieClass.deficitPercentage);
   return {
     displayName: profile.display_name!,
     sex: profile.sex!,
@@ -96,7 +98,8 @@ function buildSavedSnapshot(profile: StoredUser): SavedStatSnapshot | null {
     calorieClassId: profile.calorie_class_id!,
     bmr,
     tdee,
-    weeklyHp,
+    weeklyCalorieBudget,
+    weeklyBossHp: WEEKLY_BOSS_HP,
   };
 }
 
@@ -435,7 +438,7 @@ export default function StatsScreen() {
               monsterState={monsterState}
               monster={monster}
               todayIntake={todayIntake}
-              weeklyHpBudget={savedSnapshot.weeklyHp}
+              weeklyCalorieBudget={savedSnapshot.weeklyCalorieBudget}
             />
             {careerStats ? <BattleCareerStatsCards stats={careerStats} /> : null}
           </>
@@ -496,7 +499,7 @@ function Field({
 
 function SavedStatsTable({ snapshot }: { snapshot: SavedStatSnapshot }) {
   const calorieClass = getCalorieClass(snapshot.calorieClassId);
-  const dailyTarget = Math.round(snapshot.weeklyHp / 7);
+  const dailyTarget = Math.round(snapshot.weeklyCalorieBudget / 7);
 
   const profileRows: { label: string; value: string }[] = [
     { label: 'Name', value: snapshot.displayName },
@@ -518,9 +521,14 @@ function SavedStatsTable({ snapshot }: { snapshot: SavedStatSnapshot }) {
       sub: `Moderate baseline (×${TDEE_ACTIVITY_MULTIPLIER})`,
     },
     {
-      label: 'Weekly Monster HP',
-      value: `${snapshot.weeklyHp.toLocaleString()} kcal`,
+      label: 'Weekly calorie budget',
+      value: `${snapshot.weeklyCalorieBudget.toLocaleString()} kcal`,
       sub: `TDEE × 7 × (1 − ${calorieClass.deficitPercentage}%)`,
+    },
+    {
+      label: 'Weekly Boss HP',
+      value: `${snapshot.weeklyBossHp}`,
+      sub: 'Fixed boss life pool',
     },
     {
       label: 'Daily target',
@@ -553,16 +561,16 @@ function MonsterStatsTable({
   monsterState,
   monster,
   todayIntake,
-  weeklyHpBudget,
+  weeklyCalorieBudget,
 }: {
   monsterDisplayName: string;
   monsterState: 'stable' | 'tired' | 'overheated';
   monster: { current_hp: number; initial_hp: number } | null;
   todayIntake: number;
-  weeklyHpBudget: number;
+  weeklyCalorieBudget: number;
 }) {
   const stateInfo = MONSTER_STATE_LABELS[monsterState];
-  const dailyTarget = Math.round(weeklyHpBudget / 7);
+  const dailyTarget = Math.round(weeklyCalorieBudget / 7);
   const usageDisplay =
     dailyTarget > 0 ? Math.round(getUsagePercentDisplay(todayIntake / dailyTarget)) : 0;
   const hpPercent = monster ? (monster.current_hp / monster.initial_hp) * 100 : 0;
@@ -573,7 +581,7 @@ function MonsterStatsTable({
     {
       label: 'Weekly HP',
       value: monster
-        ? `${Math.round(monster.current_hp).toLocaleString()} / ${Math.round(monster.initial_hp).toLocaleString()} kcal`
+        ? `${Math.round(monster.current_hp).toLocaleString()} / ${Math.round(monster.initial_hp).toLocaleString()}`
         : '—',
       sub: monster ? `${Math.round(hpPercent)}% remaining this week` : 'Starts after first save',
     },
