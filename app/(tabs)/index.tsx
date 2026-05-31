@@ -22,9 +22,11 @@ import {
   getWeeklyMonster,
   isProfileComplete,
   recalibrateCurrentWeeklyMonster,
+  applyPendingHit,
   reduceWeeklyMonsterHp,
   resetWeeklyMonsterHp,
   processWeekRollover,
+  processDayHitEvaluation,
   logFoodAndUpdateMonster,
   setDailyOverheatState,
   upsertFoodMemory,
@@ -46,6 +48,7 @@ import { OverheatBar } from '@/components/OverheatBar';
 import { BattleMonsterSprite } from '@/components/BattleMonsterSprite';
 import { FoodThrowEffect } from '@/components/FoodThrowEffect';
 import { MonsterHpBar } from '@/components/MonsterHpBar';
+import { AttackButton } from '@/components/AttackButton';
 import { computeWeeklyMonsterHp, getCalorieClass } from '@/lib/metabolism';
 import { getTodayDate, getWeekDates } from '@/lib/dates';
 import { Plus, Trash2 } from 'lucide-react-native';
@@ -75,6 +78,7 @@ export default function BattleScreen() {
   const [error, setError] = useState('');
   const [profileIncomplete, setProfileIncomplete] = useState(false);
   const [feedPulse, setFeedPulse] = useState(0);
+  const [hitPulse, setHitPulse] = useState(0);
   const [dailyTarget, setDailyTarget] = useState(0);
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const shakeAnim = useRef(new Animated.Value(0)).current;
@@ -149,6 +153,7 @@ export default function BattleScreen() {
         const uid = session?.user?.id ?? (await ensureAnonymousSession()).user.id;
         setUserId(uid);
         await processWeekRollover(uid);
+        await processDayHitEvaluation(uid);
         await loadWeeklyMonster(uid);
       };
       init();
@@ -215,13 +220,40 @@ export default function BattleScreen() {
     }
   };
 
-  const handleDebugHit = async () => {
-    if (!monster) return;
+  const playHitFeedback = (updated: WeeklyMonster) => {
+    setMonster(updated);
+    setHitPulse((n) => n + 1);
+    Animated.sequence([
+      Animated.spring(scaleAnim, { toValue: 0.94, useNativeDriver: true }),
+      Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true }),
+    ]).start();
+  };
+
+  const applyPendingHitWithFeedback = async () => {
+    if (!monster || (monster.pending_hits ?? 0) <= 0 || (monster.current_hp ?? 0) <= 0) return;
     try {
-      const updated = await reduceWeeklyMonsterHp(monster.id, 1);
-      if (updated) setMonster(updated);
+      const updated = await applyPendingHit(monster.id);
+      if (updated) playHitFeedback(updated);
     } catch (err) {
-      console.error('Error reducing monster HP:', err);
+      console.error('Error applying pending hit:', err);
+    }
+  };
+
+  const handleAttack = () => {
+    void applyPendingHitWithFeedback();
+  };
+
+  /** Debug: spend pending hit when available, else −1 HP directly for tuning. */
+  const handleApplyHit = async () => {
+    if (!monster || (monster.current_hp ?? 0) <= 0) return;
+    try {
+      const hasPending = (monster.pending_hits ?? 0) > 0;
+      const updated = hasPending
+        ? await applyPendingHit(monster.id)
+        : await reduceWeeklyMonsterHp(monster.id, 1);
+      if (updated) playHitFeedback(updated);
+    } catch (err) {
+      console.error('Error applying hit:', err);
     }
   };
 
@@ -253,6 +285,8 @@ export default function BattleScreen() {
   const shakeLevel = shouldShake(overheatState);
   const isMonsterDefeated =
     (monster?.initial_hp ?? 0) > 0 && (monster?.current_hp ?? 0) <= 0;
+  const showAttackButton =
+    !profileIncomplete && monster != null && (monster.current_hp ?? 0) > 0;
 
   useEffect(() => {
     if (!userId || dailyTarget <= 0) return;
@@ -343,6 +377,7 @@ export default function BattleScreen() {
               <BattleMonsterSprite
                 state={overheatState}
                 feedPulse={feedPulse}
+                hitPulse={hitPulse}
                 defeated={isMonsterDefeated}
                 defeatedStyle="image"
               />
@@ -375,6 +410,13 @@ export default function BattleScreen() {
                 {emotionText}
               </Text>
             )}
+            {showAttackButton ? (
+              <AttackButton
+                pendingHits={monster.pending_hits ?? 0}
+                onPress={handleAttack}
+                disabled={(monster.pending_hits ?? 0) <= 0}
+              />
+            ) : null}
             <OverheatBar
               usagePercent={usagePercent}
               state={overheatState}
@@ -393,8 +435,12 @@ export default function BattleScreen() {
 
         <View style={styles.foodForm}>
           <View style={styles.debugButtonsRow}>
-            <TouchableOpacity style={styles.debugButton} onPress={handleDebugHit} disabled={!monster}>
-              <Text style={styles.debugButtonText}>Debug Hit -1 HP</Text>
+            <TouchableOpacity
+              style={[styles.debugButton, styles.applyHitButton]}
+              onPress={handleApplyHit}
+              disabled={!monster || (monster.current_hp ?? 0) <= 0}
+            >
+              <Text style={styles.debugButtonText}>Apply Hit</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.debugButton}
@@ -515,7 +561,7 @@ const styles = StyleSheet.create({
   emotionText: {
     fontSize: 22,
     fontWeight: '700',
-    marginBottom: 16,
+    marginBottom: 10,
     letterSpacing: 0.5,
   },
   emotionCool: { color: '#4ADE80' },
@@ -549,6 +595,10 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 10,
     borderRadius: 10,
+  },
+  applyHitButton: {
+    backgroundColor: '#422006',
+    borderColor: '#FBBF24',
   },
   debugButtonText: {
     color: '#E2E8F0',

@@ -96,37 +96,6 @@ User enters **food name** and **calories (kcal)** manually. Add is disabled unti
 | **Battle** tab | Row removed; HP unchanged |
 | **Log** tab | Row removed; HP **unchanged** |
 
-### Daily hit evaluation (pending hits)
-
-At app focus (Battle or Stats), `processDayHitEvaluation` runs for each **completed** calendar day (before today) not yet recorded in `dailyHitRecords`:
-
-| Condition | Result |
-|-----------|--------|
-| `usage < 100%` of daily target | +1 `pending_hits` on that week's monster |
-| `usage ≥ 100%` (HOT at 100% or OVERHEAT) | No pending hit |
-
-Boss HP is **never** changed by daily evaluation. The user spends banked hits on the Battle tab via **Apply Hit** (`applyPendingHit` → `current_hp -= 1`).
-
-Each day is evaluated once (when the app next runs after that day ends). Re-opening the app does not re-award or revoke hits for the same date.
-
-### Weekly consistency bonus
-
-Stored on the current week's `WeeklyMonster` row:
-
-| Field | Role |
-|-------|------|
-| `weekly_success_count` | Count of successful on-target days this week (not required to be consecutive) |
-| `weekly_bonus_granted` | `true` after the one-time bonus hit for that week |
-
-When a **new** successful day is evaluated (same `usage < 100%` rule as daily pending hits):
-
-1. `weekly_success_count += 1`
-2. If `weekly_success_count >= 4` and `weekly_bonus_granted === false` → `pending_hits += 1` and `weekly_bonus_granted = true`
-
-The bonus is **in addition to** the normal +1 pending hit for that day (on the 4th success, the user gets +2 pending hits total that evaluation: daily + bonus).
-
-On **new week** (`createWeeklyMonster`), both fields reset to `0` / `false`. Logic lives in `lib/weekly-consistency-bonus.ts`, invoked from `processDayHitEvaluation`.
-
 ### Weekly HP bar
 
 - Segmented life bar with one slot per HP (`8` slots at full).
@@ -241,9 +210,7 @@ Battle shows an **animated SVG sprite** (`BattleMonsterSprite`), not a static im
 | Weekly calorie budget | `round(TDEE × 7 × (1 − deficit%))` |
 | Weekly boss HP | `8` (fixed) |
 | Daily target | `round(weeklyCalorieBudget / 7)` |
-| Pending hit earned | Completed day with `usage < 100%` |
-| Weekly consistency bonus | 4 successful days in one week → +1 extra `pending_hits` (once per week) |
-| HP changes | **Apply Hit** only (spends 1 pending hit → −1 boss HP); debug reset restores full HP |
+| HP changes | via debug controls only (temporary) |
 | Victory | Boss HP &gt; 0 after Sunday (recorded on rollover) |
 | Week win streak | Consecutive `victory` in `weeklyResults` (newest weeks first) |
 | COOL day | Daily usage &lt; 80% of target |
@@ -252,8 +219,7 @@ Battle shows an **animated SVG sprite** (`BattleMonsterSprite`), not a static im
 
 ## 9. Design intent
 
-- **Weekly boss HP** = battle life layer (currently fixed); reduced only by spending **pending hits**.
-- **Pending hits** = reward for on-target days; banked until the user taps **Apply Hit**.
+- **Weekly boss HP** = battle life layer (currently fixed).
 - **Daily overheat** = same-day feedback.
 - **Separate systems** — COOL today ≠ high weekly HP remaining.
 - **Higher calorie class** = deeper deficit, not more calories.

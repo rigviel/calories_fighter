@@ -85,13 +85,12 @@ interface User {
 interface StoreData {
   userId: string | null;
   users: Record<string, User>;
-  weeklyMonsters: WeeklyMonster[];  // pending_hits + weekly consistency bonus fields
+  weeklyMonsters: WeeklyMonster[];
   dailyLogs: DailyLog[];
   foodMemory: FoodMemory[];
   weeklyResults: WeeklyResult[];           // written on week rollover
   dailyOverheat: Record<string, DailyOverheatRecord>;  // today's band (quick lookup)
   dailyOverheatHistory: Record<string, Record<string, OverheatState>>;  // userId → date → band
-  dailyHitRecords: DailyHitRecord[];  // one row per evaluated calendar day
 }
 ```
 
@@ -112,12 +111,10 @@ interface StoreData {
 | `recalibrateCurrentWeeklyMonster` | Normalizes current week to fixed boss life (`WEEKLY_BOSS_HP = 8`) |
 | `processWeekRollover` | For ended weeks without a result row → append `weeklyResults` (victory if `current_hp > 0`) |
 | `getBattleCareerStats` | Aggregates career metrics via `lib/battle-stats.ts` |
-| `createWeeklyMonster` | New week row; `initial_hp`/`current_hp` = fixed 8 HP; resets `weekly_success_count` / `weekly_bonus_granted` |
+| `createWeeklyMonster` | New week row; `initial_hp`/`current_hp` = fixed 8 HP |
 | `logFoodAndUpdateMonster` | Atomic food log append; HP unchanged |
 | `deleteDailyLogAndRestoreHp` | Battle delete removes row; HP unchanged (name kept for compatibility) |
-| `processDayHitEvaluation` | On-target days → `pending_hits += 1` + consistency counter; at 4 successes → one bonus `pending_hits`; boss HP unchanged |
-| `applyPendingHit` | Spend 1 pending hit → `current_hp -= 1` |
-| `resetWeeklyMonsterHp` | Temporary debug helper (reset full HP) |
+| `reduceWeeklyMonsterHp` / `resetWeeklyMonsterHp` | Temporary debug helpers (`-1 HP`, reset full HP) |
 | `deleteDailyLog` | Log tab delete — row only, HP unchanged |
 | `setDailyOverheatState` | Updates `dailyOverheat` + `dailyOverheatHistory[date]` |
 | `upsertFoodMemory` | Called after each Battle log (autocomplete not wired) |
@@ -151,30 +148,6 @@ Pure daily state machine + expressions. See [game-rules](./game-rules.md).
 
 ---
 
-## Weekly consistency bonus: `lib/weekly-consistency-bonus.ts`
-
-| Export | Role |
-|--------|------|
-| `WEEKLY_CONSISTENCY_BONUS_THRESHOLD` | `4` successful days |
-| `reconcileWeeklySuccessCount` | Sync counter from `dailyHitRecords` (migration-safe) |
-| `incrementWeeklySuccessCount` | +1 success then try bonus grant |
-| `tryGrantWeeklyConsistencyBonus` | One-time +1 `pending_hits` when threshold met |
-
-Fields live on each `WeeklyMonster` (`weekly_success_count`, `weekly_bonus_granted`). New weeks reset via `createWeeklyMonster`.
-
----
-
-## Pending hits: `lib/pending-hits.ts`
-
-| Export | Role |
-|--------|------|
-| `isDailyTargetSuccess` | `usagePercent < 1.0` (strictly under 100%) |
-| `listEvaluableDates` | Week dates before today (completed days only) |
-
-Called from Battle and Stats on focus via `processDayHitEvaluation`.
-
----
-
 ## Battle career: `lib/battle-stats.ts`
 
 Pure aggregation from `weeklyResults`, `dailyOverheatHistory`, and `dailyLogs`. Exported as `BattleCareerStats`:
@@ -199,15 +172,14 @@ Pure aggregation from `weeklyResults`, `dailyOverheatHistory`, and `dailyLogs`. 
 ### Battle (`app/(tabs)/index.tsx`)
 
 1. `processWeekRollover` on focus.
-2. `processDayHitEvaluation` on focus (award pending hits for completed on-target days).
-3. If `!isProfileComplete(user)` → banner, no monster budget, logging disabled.
+2. If `!isProfileComplete(user)` → banner, no monster budget, logging disabled.
 3. Load/recalibrate weekly monster (`initial_hp = 8`); `dailyTarget` is calorie-based from metabolism (`computeWeeklyMonsterHp(...)/7`), not boss HP.
 4. **Monster arena:** `FoodThrowEffect` + `BattleMonsterSprite` inside `monsterArena` (overflow visible for throw arc).
 5. Food form: name + **manual kcal** → `logFoodAndUpdateMonster` + `upsertFoodMemory`.
 6. On successful log: `setFeedPulse(n => n + 1)` — **visual only** (see below).
 7. Overheat recompute on log; band cross persists to history.
 8. Today’s log delete uses `deleteDailyLogAndRestoreHp` (HP unchanged).
-9. **Apply Hit** spends one `pending_hits` to reduce boss HP by 1; **Reset HP Full** remains a temporary debug control.
+9. Temporary debug buttons adjust boss HP directly (`Debug Hit -1 HP`, `Reset HP Full`).
 10. Card-level `Animated` scale on log; shake on HOT/OVERHEAT applies to whole monster card.
 
 #### Feed animation (visual layer — no storage impact)
@@ -243,25 +215,6 @@ User-entered food name is **not** shown on the projectile (always 🍖 for feedb
 ### History (`app/(tabs)/history.tsx`)
 
 - Up to 100 logs; delete uses `deleteDailyLog` (HP **not** restored).
-
----
-
-## Event flow: day hit evaluation
-
-```
-App focus (Battle or Stats)
-    │
-    ▼
-processDayHitEvaluation
-    ├─ for each completed calendar day (before today) not yet in dailyHitRecords
-    ├─ usage = that day's intake / dailyTarget
-    ├─ if usage < 100% → pending_hits += 1, weekly_success_count += 1
-    ├─ if weekly_success_count >= 4 and bonus not granted → +1 bonus pending_hits
-    └─ append dailyHitRecords row (awarded true/false)
-    │
-    ▼
-Boss HP unchanged — user spends pending hits via Apply Hit on Battle
-```
 
 ---
 

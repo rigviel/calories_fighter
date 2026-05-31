@@ -20,7 +20,7 @@
 
 1. **Onboarding** — Weight + calorie class (partial profile only).
 2. **Character Stat** — Enter full profile (name, sex, age, weight, height, class); **Save** unlocks metabolism and battle budgets.
-3. **Weekly battle** — Boss starts each week at **8 HP**; on-target days earn **pending hits** (not automatic HP damage); spend hits on Battle with **Apply Hit**.
+3. **Weekly battle** — Boss starts each week at **8 HP**; food logs are tracked for overheat, and HP can be tuned/debugged separately.
 4. **Daily overheat** — Same logs feed daily usage bar and monster sprite mood (COOL → OVERHEAT).
 5. **Week end** — If boss HP remains after Sunday, count as **monster defeated**; results stored in `weeklyResults`.
 6. **History** — Review logs; delete from Log tab does not change boss HP.
@@ -52,7 +52,6 @@
 | **Feed FX** | **🍖** (~76px) thrown toward monster (~820ms), then munch animation |
 | **Overheat bar** | Daily usage vs target (calorie-based) |
 | **Weekly HP bar** | Boss remaining life (fixed 8 max, segmented slots) |
-| **Pending hits** | Shown above HP bar; **Apply Hit** spends one hit → −1 boss HP |
 
 Game rules and storage are unchanged by feed animation — the user’s typed food name is what gets saved.
 
@@ -70,7 +69,7 @@ Game rules and storage are unchanged by feed animation — the user’s typed fo
 | Block | UI | Contents |
 |--------|-----|-----------|
 | **Current Stats** | Table | Saved profile + BMR, TDEE, weekly calorie budget, fixed boss HP, daily target |
-| **Monster Stat** | Table + mini HP bar | Live monster name, sheet state, boss HP, pending hits, daily target, today’s intake |
+| **Monster Stat** | Table + mini HP bar | Live monster name, sheet state, boss HP, daily target, today’s intake |
 | **Battle Stats** | **Cards** | Week Win Streak (hero card), Total Wins, Battles; empty state until first week ends |
 
 **Battle Stats card layout:**
@@ -98,7 +97,7 @@ calories/
 │   ├── _layout.tsx
 │   ├── onboarding.tsx
 │   └── (tabs)/
-│       ├── index.tsx       # Battle (+ pending hits, Apply Hit, feedPulse)
+│       ├── index.tsx       # Battle (+ feedPulse, temporary HP debug buttons)
 │       ├── history.tsx     # Log
 │       └── summary.tsx     # Character Stat
 ├── assets/
@@ -113,8 +112,7 @@ calories/
 │   ├── metabolism.ts
 │   ├── overheat.ts
 │   ├── dates.ts
-│   ├── battle-stats.ts
-│   └── pending-hits.ts
+│   └── battle-stats.ts
 ├── hooks/
 │   └── useFrameworkReady.ts
 ├── docs/
@@ -149,7 +147,7 @@ No `.env` or Supabase keys required for the local-only build.
 
 - Data is **device-local** only (anonymous session ID).
 - **Food calories** are manual entry (no live AI estimate).
-- Boss HP is reduced only by spending **pending hits** (earned from on-target days).
+- Boss HP is currently fixed at `8` (temporary balancing phase).
 - **Food memory** is saved on log but not used for autocomplete on Battle.
 - **Feed animation** always shows 🍖, not the user’s food name or a custom icon per item.
 - Re-onboarding / multi-profile not supported.

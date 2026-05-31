@@ -72,8 +72,7 @@ Legacy folder `/backup/doc-YYYY-MM-DD/` may exist from older sessions; prefer th
 - Daily overheat target remains calorie-based (`computeWeeklyMonsterHp(...)/7`) and is separate from boss HP.
 - Week rollover (`processWeekRollover`) writes `weeklyResults` (victory if HP remains after Sunday).
 - Food logging does **not** change boss HP; delete on Battle/Log does not change boss HP.
-- **Pending hits:** completed on-target days (`usage < 100%`) award +1 `pending_hits` via `processDayHitEvaluation` — boss HP is **not** reduced automatically. Spend hits on Battle with **Apply Hit**.
-- Temporary debug control on Battle: **Reset HP Full** (Apply Hit replaced debug −1 HP).
+- Temporary debug controls on Battle: **Debug Hit -1 HP** and **Reset HP Full**.
 - Commented fallbacks in `index.tsx`: PNG (`assets/monster/happy.png`) and emoji `Text` — for rollback only.
 
 ### Onboarding
@@ -89,7 +88,6 @@ Legacy folder `/backup/doc-YYYY-MM-DD/` may exist from older sessions; prefer th
 | `lib/battle-stats.ts` | Career stats (week win streak, wins, COOL streaks) |
 | `components/BattleMonsterSprite.tsx` | Battle monster SVG + walk/munch animations |
 | `components/FoodThrowEffect.tsx` | 🍖 throw animation (`FOOD_THROW_DURATION_MS`) |
-| `lib/pending-hits.ts` | Daily target success check, evaluable date helpers |
 | `components/OverheatBar.tsx` | Daily usage bar on Battle |
 
 ---
@@ -99,4 +97,4 @@ Legacy folder `/backup/doc-YYYY-MM-DD/` may exist from older sessions; prefer th
 - Optional `weekly-result` modal screen (route declared, file missing)
 - Emotion-based animation tuning (e.g. weaker breathing at low HP) — visual only
 - Trim or extend Battle Stats footer line (COOL / last week) per user feedback
-- Remove temporary **Reset HP Full** debug button after boss HP tuning is finalized
+- Remove temporary HP debug buttons after boss HP tuning is finalized

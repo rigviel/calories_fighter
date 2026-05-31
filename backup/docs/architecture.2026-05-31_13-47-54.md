@@ -255,8 +255,7 @@ App focus (Battle or Stats)
 processDayHitEvaluation
     ├─ for each completed calendar day (before today) not yet in dailyHitRecords
     ├─ usage = that day's intake / dailyTarget
-    ├─ if usage < 100% → pending_hits += 1, weekly_success_count += 1
-    ├─ if weekly_success_count >= 4 and bonus not granted → +1 bonus pending_hits
+    ├─ if usage < 100% → weeklyMonsters.pending_hits += 1
     └─ append dailyHitRecords row (awarded true/false)
     │
     ▼

@@ -114,11 +114,14 @@ function CuteSkullEye({ cx, cy }: { cx: number; cy: number }) {
 export function BattleMonsterSprite({
   state,
   feedPulse = 0,
+  hitPulse = 0,
   defeated = false,
   defeatedStyle = 'cute',
 }: {
   state: OverheatState;
   feedPulse?: number;
+  /** Increment to play a brief damage recoil (boss hit). */
+  hitPulse?: number;
   defeated?: boolean;
   defeatedStyle?: 'image' | 'cute' | 'classic';
 }) {
@@ -127,6 +130,7 @@ export function BattleMonsterSprite({
   const breathAnim = useRef(new Animated.Value(0)).current;
   const hopAnim = useRef(new Animated.Value(0)).current;
   const chompAnim = useRef(new Animated.Value(0)).current;
+  const hitRecoil = useRef(new Animated.Value(0)).current;
   const defeatedBob = useRef(new Animated.Value(0)).current;
   const [isMunching, setIsMunching] = useState(false);
 
@@ -161,6 +165,27 @@ export function BattleMonsterSprite({
       setIsMunching(false);
     };
   }, [feedPulse, chompAnim, defeated]);
+
+  useEffect(() => {
+    if (defeated) return;
+    if (hitPulse === 0) return;
+
+    hitRecoil.setValue(0);
+    const recoil = Animated.sequence([
+      Animated.timing(hitRecoil, { toValue: 1, duration: 70, useNativeDriver: true }),
+      Animated.spring(hitRecoil, {
+        toValue: 0,
+        useNativeDriver: true,
+        speed: 28,
+        bounciness: 10,
+      }),
+    ]);
+    recoil.start();
+    return () => {
+      recoil.stop();
+      hitRecoil.setValue(0);
+    };
+  }, [hitPulse, hitRecoil, defeated]);
 
   useEffect(() => {
     if (!defeated || defeatedStyle !== 'image') {
@@ -311,14 +336,32 @@ export function BattleMonsterSprite({
     [facing]
   );
 
+  const hitScale = useMemo(
+    () =>
+      hitRecoil.interpolate({
+        inputRange: [0, 1],
+        outputRange: [1, 0.88],
+      }),
+    [hitRecoil]
+  );
+
+  const hitKnockback = useMemo(
+    () =>
+      hitRecoil.interpolate({
+        inputRange: [0, 1],
+        outputRange: [0, 8],
+      }),
+    [hitRecoil]
+  );
+
   const combinedScaleX = useMemo(
-    () => Animated.multiply(facingScaleX, chompScaleX),
-    [facingScaleX, chompScaleX]
+    () => Animated.multiply(Animated.multiply(facingScaleX, chompScaleX), hitScale),
+    [facingScaleX, chompScaleX, hitScale]
   );
 
   const combinedScaleY = useMemo(
-    () => Animated.multiply(breathScale, chompScaleY),
-    [breathScale, chompScaleY]
+    () => Animated.multiply(Animated.multiply(breathScale, chompScaleY), hitScale),
+    [breathScale, chompScaleY, hitScale]
   );
 
   const defeatedLook = useMemo(() => {
@@ -360,7 +403,11 @@ export function BattleMonsterSprite({
           {
             transform: [
               { translateX: defeated ? 0 : translateX },
-              { translateY: defeated ? 0 : translateY },
+              {
+                translateY: defeated
+                  ? 0
+                  : Animated.add(translateY, hitKnockback),
+              },
               { scaleX: defeated ? 1 : combinedScaleX },
               { scaleY: defeated ? 1 : combinedScaleY },
             ],

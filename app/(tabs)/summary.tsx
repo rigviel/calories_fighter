@@ -23,6 +23,7 @@ import {
   recalibrateCurrentWeeklyMonster,
   resolveMonsterDisplayName,
   processWeekRollover,
+  processDayHitEvaluation,
   getBattleCareerStats,
   WEEKLY_BOSS_HP,
   type BattleCareerStats,
@@ -128,6 +129,7 @@ export default function StatsScreen() {
   const [monster, setMonster] = useState<{
     current_hp: number;
     initial_hp: number;
+    pending_hits: number;
   } | null>(null);
   const [monsterState, setMonsterState] = useState<'stable' | 'tired' | 'overheated'>('stable');
   const [todayIntake, setTodayIntake] = useState(0);
@@ -172,6 +174,9 @@ export default function StatsScreen() {
     setMonsterName(profile.monster_name ?? '');
     setSavedSnapshot(buildSavedSnapshot(profile));
 
+    await processWeekRollover(uid);
+    await processDayHitEvaluation(uid);
+
     const syncedMonster = await recalibrateCurrentWeeklyMonster(uid);
     const activeMonster =
       syncedMonster ?? (await getWeeklyMonster(uid, getWeekDates().start));
@@ -190,7 +195,6 @@ export default function StatsScreen() {
       setTodayIntake(0);
     }
 
-    await processWeekRollover(uid);
     setCareerStats(await getBattleCareerStats(uid));
   };
 
@@ -565,7 +569,7 @@ function MonsterStatsTable({
 }: {
   monsterDisplayName: string;
   monsterState: 'stable' | 'tired' | 'overheated';
-  monster: { current_hp: number; initial_hp: number } | null;
+  monster: { current_hp: number; initial_hp: number; pending_hits?: number } | null;
   todayIntake: number;
   weeklyCalorieBudget: number;
 }) {
@@ -584,6 +588,11 @@ function MonsterStatsTable({
         ? `${Math.round(monster.current_hp).toLocaleString()} / ${Math.round(monster.initial_hp).toLocaleString()}`
         : '—',
       sub: monster ? `${Math.round(hpPercent)}% remaining this week` : 'Starts after first save',
+    },
+    {
+      label: 'Pending hits',
+      value: monster ? String(monster.pending_hits ?? 0) : '—',
+      sub: 'Earned by staying under daily target; spend on Battle tab',
     },
     {
       label: 'Daily target',

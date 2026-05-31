@@ -3,6 +3,7 @@ import { buildBattleCareerStats, type BattleCareerStats } from '@/lib/battle-sta
 import { getTodayDate, getWeekDates, isDateInWeek } from '@/lib/dates';
 import {
   computeTdeeFromProfile,
+  computeWeeklyMonsterHp,
   generateMonsterName,
   getCalorieClass,
   isProfileComplete,
@@ -11,6 +12,17 @@ import {
   type CalorieClassId,
   type Sex,
 } from '@/lib/metabolism';
+import {
+  computeDailyUsage,
+  isDailyTargetSuccess,
+  listEvaluableDates,
+} from '@/lib/pending-hits';
+import {
+  incrementWeeklySuccessCount,
+  initialWeeklyConsistencyState,
+  reconcileWeeklySuccessCount,
+  tryGrantWeeklyConsistencyBonus,
+} from '@/lib/weekly-consistency-bonus';
 
 const STORAGE_KEY = '@calories/local-data';
 export const WEEKLY_BOSS_HP = 8;
@@ -39,7 +51,19 @@ interface WeeklyMonster {
   week_end: string;
   initial_hp: number;
   current_hp: number;
+  /** Banked hits earned from on-target days; spent via applyPendingHit. */
+  pending_hits: number;
+  /** Successful on-target days this week (not required to be consecutive). */
+  weekly_success_count: number;
+  /** True after the one-time +1 pending hit bonus for 4 successes this week. */
+  weekly_bonus_granted: boolean;
   difficulty_id: string | null;
+}
+
+interface DailyHitRecord {
+  user_id: string;
+  date: string;
+  awarded: boolean;
 }
 
 interface DailyLog {
@@ -85,6 +109,8 @@ interface StoreData {
   dailyOverheat: Record<string, DailyOverheatRecord>;
   /** userId → YYYY-MM-DD → end-of-day overheat band */
   dailyOverheatHistory: Record<string, Record<string, DailyOverheatRecord['state']>>;
+  /** One row per user per calendar day — prevents double daily hit evaluation. */
+  dailyHitRecords: DailyHitRecord[];
 }
 
 function createId(): string {
@@ -169,6 +195,19 @@ function normalizeStoreShape(store: StoreData): StoreData {
   if (!store.weeklyResults) store.weeklyResults = [];
   if (!store.dailyOverheat) store.dailyOverheat = {};
   if (!store.dailyOverheatHistory) store.dailyOverheatHistory = {};
+  if (!store.dailyHitRecords) store.dailyHitRecords = [];
+  for (const monster of store.weeklyMonsters) {
+    if (typeof monster.pending_hits !== 'number') {
+      monster.pending_hits = 0;
+    }
+    const consistency = initialWeeklyConsistencyState();
+    if (typeof monster.weekly_success_count !== 'number') {
+      monster.weekly_success_count = consistency.weekly_success_count;
+    }
+    if (typeof monster.weekly_bonus_granted !== 'boolean') {
+      monster.weekly_bonus_granted = consistency.weekly_bonus_granted;
+    }
+  }
   return store;
 }
 
@@ -204,6 +243,7 @@ async function loadStore(): Promise<StoreData> {
       weeklyResults: [],
       dailyOverheat: {},
       dailyOverheatHistory: {},
+      dailyHitRecords: [],
     };
   }
   const store = normalizeStoreShape(JSON.parse(raw) as StoreData);
@@ -438,6 +478,8 @@ export async function createWeeklyMonster(
     week_end: weekEnd,
     initial_hp: WEEKLY_BOSS_HP,
     current_hp: WEEKLY_BOSS_HP,
+    pending_hits: 0,
+    ...initialWeeklyConsistencyState(),
     difficulty_id: difficultyId,
   };
   store.weeklyMonsters.push(monster);
@@ -497,6 +539,70 @@ export async function deleteDailyLogAndRestoreHp(
 
   await saveStore(store);
   return monster ? { ...monster } : null;
+}
+
+function hasDailyHitRecord(records: DailyHitRecord[], userId: string, date: string): boolean {
+  return records.some((r) => r.user_id === userId && r.date === date);
+}
+
+/**
+ * Evaluate completed calendar days and award +1 pending hit per on-target day.
+ * Boss HP is never changed here — only pending_hits increases.
+ */
+export async function processDayHitEvaluation(userId: string): Promise<void> {
+  const store = await loadStore();
+  const user = store.users[userId];
+  if (!user || !isProfileComplete(user) || user.tdee == null || !user.calorie_class_id) {
+    return;
+  }
+
+  const today = getTodayDate();
+  const calorieClass = getCalorieClass(user.calorie_class_id);
+  const weeklyCalorieBudget = computeWeeklyMonsterHp(user.tdee, calorieClass.deficitPercentage);
+  const dailyTarget = weeklyCalorieBudget / 7;
+  let changed = false;
+
+  for (const monster of store.weeklyMonsters.filter((m) => m.user_id === userId)) {
+    reconcileWeeklySuccessCount(monster, store.dailyHitRecords, userId);
+    if (tryGrantWeeklyConsistencyBonus(monster)) {
+      changed = true;
+    }
+
+    const dates = listEvaluableDates(monster.week_start, monster.week_end, today);
+    for (const date of dates) {
+      if (hasDailyHitRecord(store.dailyHitRecords, userId, date)) continue;
+
+      const intake = store.dailyLogs
+        .filter((l) => l.user_id === userId && l.log_date === date)
+        .reduce((sum, l) => sum + l.calories, 0);
+      const usage = computeDailyUsage(intake, dailyTarget);
+      const awarded = isDailyTargetSuccess(usage);
+
+      if (awarded) {
+        monster.pending_hits = (monster.pending_hits ?? 0) + 1;
+        incrementWeeklySuccessCount(monster);
+      }
+
+      store.dailyHitRecords.push({ user_id: userId, date, awarded });
+      changed = true;
+    }
+  }
+
+  if (changed) await saveStore(store);
+}
+
+/** Spend one pending hit to reduce boss HP by 1. */
+export async function applyPendingHit(monsterId: string): Promise<WeeklyMonster | null> {
+  const store = await loadStore();
+  const monster = store.weeklyMonsters.find((m) => m.id === monsterId);
+  if (!monster || (monster.pending_hits ?? 0) <= 0 || monster.current_hp <= 0) {
+    return null;
+  }
+
+  monster.pending_hits -= 1;
+  monster.current_hp = Math.max(0, monster.current_hp - 1);
+  await saveStore(store);
+  return { ...monster };
 }
 
 /** Temporary debug helper for battle tuning. */
