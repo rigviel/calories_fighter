@@ -1,4 +1,13 @@
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Animated } from 'react-native';
+import {
+  View,
+  Text,
+  Image,
+  StyleSheet,
+  TouchableOpacity,
+  TextInput,
+  ScrollView,
+  Animated,
+} from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useState, useCallback, useRef, useMemo, useEffect } from 'react';
 import { useFocusEffect } from 'expo-router';
@@ -242,6 +251,8 @@ export default function BattleScreen() {
     [overheatState]
   );
   const shakeLevel = shouldShake(overheatState);
+  const isMonsterDefeated =
+    (monster?.initial_hp ?? 0) > 0 && (monster?.current_hp ?? 0) <= 0;
 
   useEffect(() => {
     if (!userId || dailyTarget <= 0) return;
@@ -329,7 +340,12 @@ export default function BattleScreen() {
           >
             <View style={styles.monsterArena}>
               <FoodThrowEffect pulse={feedPulse} />
-              <BattleMonsterSprite state={overheatState} feedPulse={feedPulse} />
+              <BattleMonsterSprite
+                state={overheatState}
+                feedPulse={feedPulse}
+                defeated={isMonsterDefeated}
+                defeatedStyle="image"
+              />
             </View>
             {/* PNG fallback (DO NOT DELETE)
             <Image
@@ -340,17 +356,25 @@ export default function BattleScreen() {
             {/* Emoji fallback (DO NOT DELETE)
             <Text style={styles.monsterEmoji}>{monsterExpression.emoji}</Text>
             */}
-            <Text
-              style={[
-                styles.emotionText,
-                overheatState === 'cool' && styles.emotionCool,
-                overheatState === 'warm' && styles.emotionWarm,
-                overheatState === 'hot' && styles.emotionHot,
-                overheatState === 'overheat' && styles.emotionOverheat,
-              ]}
-            >
-              {emotionText}
-            </Text>
+            {isMonsterDefeated ? (
+              <Image
+                source={require('../../assets/monster/you-win-victory.v2.png')}
+                style={styles.victoryBanner}
+                resizeMode="contain"
+              />
+            ) : (
+              <Text
+                style={[
+                  styles.emotionText,
+                  overheatState === 'cool' && styles.emotionCool,
+                  overheatState === 'warm' && styles.emotionWarm,
+                  overheatState === 'hot' && styles.emotionHot,
+                  overheatState === 'overheat' && styles.emotionOverheat,
+                ]}
+              >
+                {emotionText}
+              </Text>
+            )}
             <OverheatBar
               usagePercent={usagePercent}
               state={overheatState}
@@ -498,6 +522,12 @@ const styles = StyleSheet.create({
   emotionWarm: { color: '#FBBF24' },
   emotionHot: { color: '#FB923C' },
   emotionOverheat: { color: '#EF4444' },
+  victoryBanner: {
+    width: 220,
+    height: 102,
+    marginBottom: 16,
+    alignSelf: 'center',
+  },
   hpContainer: {
     width: '100%',
     paddingHorizontal: 16,
